@@ -23,3 +23,28 @@ pokemon_red.toml
 generated_ext/
 dist/
 generated_pre_launcher/
+
+# Local operating-system metadata and compiled outputs.
+.DS_Store
+*.o
+*.obj
+*.a
+*.dylib
+*.so
+*.dll
+*.exe
+*.app
+CMakeFiles/
+CMakeCache.txt
+build.ninja
+cmake_install.cmake
+.ninja_deps
+.ninja_log
+
+# ROMs, save files, and patches can contain or reconstruct copyrighted game data.
+*.rom
+*.srm
+*.ips
+*.ups
+*.bps
+spanish/generated/

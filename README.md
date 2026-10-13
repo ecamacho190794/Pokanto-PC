@@ -1,4 +1,8 @@
-# PokemonRedAndBlueRecomp
+# Pokanto PC
+
+**Versión actual: 0.0.1 estable.** No se ha publicado un release; esta versión
+identifica el estado base de Pokanto PC. Este fork está basado en
+[`mstan/PokemonRedAndBlueRecomp`](https://github.com/mstan/PokemonRedAndBlueRecomp).
 
 A static recompilation of **Pokemon Red** and **Pokemon Blue** (Game Boy) for native PC.
 
@@ -8,7 +12,11 @@ This project uses [gb-recompiled](https://github.com/mstan/gbrecompiled) (forked
 
 ## Status
 
-**Early working prototype.** The game is playable from the title screen through the Elite Four, but this is not a finished product.
+**Pokanto PC v0.0.1 is the stable local baseline for the Spanish build.** It has
+not been published as a release. The Spanish executable has been built and
+used on macOS; Windows and Linux instructions are documented but those builds
+have not yet been verified. The inherited English Red/Blue branch remains the
+upstream project's early working prototype.
 
 - The game runs and is playable with both Red and Blue ROMs
 - Some animations may lag or chug slightly (e.g., certain battle intro spirals)
@@ -58,22 +66,39 @@ are **private/personal artifacts — do not distribute**.
 
 ### Pre-built Release
 
-1. Download the latest release from the [Releases](https://github.com/mstan/PokemonRedAndBlueRecomp/releases) page
-2. Extract the zip
-3. Run the bundled `.exe` (or `run.bat`)
-4. Stock accepts either Pokemon Red or Blue (UE); Extended runs the bundled Gen 2 ROM
+Pokanto PC v0.0.1 does not have a published release. Build from source using
+the instructions below and provide your own ROM.
 
 ### Building from Source
 
-Requires MSYS2 MinGW64 toolchain, CMake 3.20+, Ninja, and SDL2.
+Requires CMake 3.20+, Ninja, SDL2 development files, and a C/C++ compiler. The
+project builds natively for macOS, Linux, and Windows (on Windows, use the
+MSYS2 MinGW64 shell and install `mingw-w64-x86_64-cmake`,
+`mingw-w64-x86_64-ninja`, `mingw-w64-x86_64-SDL2`, and the MinGW GCC toolchain).
+On macOS, install the prerequisites with Homebrew:
+
+```sh
+brew install cmake ninja sdl2
+```
+
+On Debian/Ubuntu Linux:
+
+```sh
+sudo apt install cmake ninja-build libsdl2-dev build-essential
+```
 
 ```bash
-git clone --recursive https://github.com/mstan/PokemonRedAndBlueRecomp
-cd PokemonRedAndBlueRecomp
+git clone --recursive https://github.com/ecamacho190794/Pokanto-PC.git
+cd Pokanto-PC
 cp /path/to/your-pokemon-rom.gb roms/
 ./build.sh all   # Full build (recompiler + code gen + compile)
 ./build.sh run   # Build + launch
 ```
+
+For the stock build, name the ROM `roms/Pokemon Red (UE) [S][!].gb` as
+configured in `pokemon_red_blue.toml`. You must provide your own legally
+obtained ROM; it is not included in this repository. The generated executable
+uses the host platform's native format (for example, Mach-O on macOS).
 
 Build commands:
 - `./build.sh all` — Full rebuild (recompiler + regenerate + compile)
@@ -81,6 +106,14 @@ Build commands:
 - `./build.sh regen` — Regenerate C code from ROM
 - `./build.sh bank 00 03` — Regenerate + rebuild specific banks
 - `./build.sh run` — Build + launch
+
+### Pokémon Edición Roja en español (v0.0.1)
+
+Pokered-es has a separate build path: initialize submodules, install RGBDS,
+build the recompiler, then run `./build-spanish.sh`. It verifies the Spanish ROM
+hash and writes `spanish/generated/build/Pokemon_Edicion_Roja`. See
+[`spanish/README.md`](spanish/README.md) and the persistent agent notes in
+[`agents/`](agents/).
 
 ## Controls
 

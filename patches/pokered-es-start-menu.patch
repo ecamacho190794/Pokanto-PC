@@ -1,0 +1,91 @@
+diff --git a/engine/menus/draw_start_menu.asm b/engine/menus/draw_start_menu.asm
+index e69f58f..8b3b426 100644
+--- a/engine/menus/draw_start_menu.asm
++++ b/engine/menus/draw_start_menu.asm
+@@ -5 +5 @@ DrawStartMenu::
+-	hlcoord 10, 0
++	hlcoord 5, 0
+@@ -7 +7 @@ DrawStartMenu::
+-	ld c, $08
++	ld c, $0d
+@@ -10 +10 @@ DrawStartMenu::
+-	hlcoord 10, 0
++	hlcoord 5, 0
+@@ -12 +12 @@ DrawStartMenu::
+-	ld c, $08
++	ld c, $0d
+@@ -19 +19 @@ DrawStartMenu::
+-	ld a, $0b
++	ld a, $06
+@@ -28 +28 @@ DrawStartMenu::
+-	hlcoord 12, 2
++	hlcoord 7, 2
+@@ -78 +78 @@ StartMenuExitText:
+-	db "SALIR@"
++	db "CERRAR JUEGO@"
+@@ -81 +81 @@ StartMenuOptionText:
+-	db "OPCIÓN@"
++	db "OPCIONES@"
+diff --git a/engine/menus/main_menu.asm b/engine/menus/main_menu.asm
+index 7cb7d72..f8910f5 100644
+--- a/engine/menus/main_menu.asm
++++ b/engine/menus/main_menu.asm
+@@ -37,2 +37,2 @@ MainMenu:
+-	ld b, 6
+-	ld c, 13
++	ld b, 7
++	ld c, 18
+@@ -46,2 +46,2 @@ MainMenu:
+-	ld b, 4
+-	ld c, 13
++	ld b, 5
++	ld c, 18
+@@ -66,0 +67 @@ MainMenu:
++	inc a ; include "SALIR DEL JUEGO" as the final menu entry
+@@ -86,0 +88,4 @@ MainMenu:
++	cp 2
++	jr z, .choseOptions
++	jp MainMenuQuit
++.choseOptions
+@@ -342,0 +348,9 @@ SpecialEnterMap::
++; Host bridge for the Spanish desktop build. The runtime watches these unused
++; I/O bytes and exits cleanly; on original hardware, return to the title.
++MainMenuQuit:
++	ld a, $50 ; 'P'
++	ld [$FF7E], a
++	ld a, $4B ; 'K'
++	ld [$FF7F], a
++	jp DisplayTitleScreen
++
+@@ -350 +364,2 @@ NewGameText:
+-	next "OPCIONES@"
++	next "OPCIONES"
++	next "SALIR DEL JUEGO@"
+diff --git a/home/start_menu.asm b/home/start_menu.asm
+index 9504d53..46e29d9 100644
+--- a/home/start_menu.asm
++++ b/home/start_menu.asm
+@@ -78 +78,22 @@ RedisplayStartMenu::
+-; EXIT falls through to here
++; Exit the running game instead of merely dismissing the start menu.
++jp StartMenu_Quit
++
++StartMenu_Quit:
++	ld hl, StartMenu_QuitPromptText
++	call PrintText
++	call YesNoChoice
++	ld a, [wCurrentMenuItem] ; 0 = Sí, 1 = No
++	and a
++	jr nz, .quit
++	farcall SaveGameData
++.quit
++	ld a, $50 ; 'P'
++	ld [$FF7E], a
++	ld a, $4B ; 'K'
++	ld [$FF7F], a
++	jp CloseStartMenu
++
++StartMenu_QuitPromptText:
++	text_far _WouldYouLikeToSaveText
++	text_end
++

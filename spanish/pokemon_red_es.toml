@@ -1,0 +1,15 @@
+# Pokémon Edición Roja (Spain), analyzed from Pokered-es symbols.
+# Kept separate from the English config/generated project.
+
+[rom]
+path = "generated/Pokemon_Edicion_Roja_patched.gbc"
+output_dir = "generated"
+runtime_dir = "../../gb-recompiled/runtime"
+output_prefix = "Pokemon_Edicion_Roja"
+valid_crcs = [0xD8507D8A]
+
+[options]
+aggressive_scan = false
+emit_comments = true
+# Do not auto-load the English dispatch_misses.toml at repository root.
+dispatch_misses = "disabled-dispatch-misses.toml"

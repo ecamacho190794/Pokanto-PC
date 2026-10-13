@@ -13,13 +13,17 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-RECOMP_DIR="$SCRIPT_DIR/../gb-recompiled"
+RECOMP_DIR="$SCRIPT_DIR/gb-recompiled"
 GEN_DIR="$SCRIPT_DIR/generated"
 BUILD_DIR="$GEN_DIR/build"
 RECOMP_BUILD="$RECOMP_DIR/build"
 CONFIG="$SCRIPT_DIR/pokemon_red_blue.toml"
-GBRECOMP="$RECOMP_BUILD/bin/gbrecomp.exe"
-EXE="$BUILD_DIR/Pokemon_Red_Blue.exe"
+EXE_SUFFIX=""
+if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* || "$(uname -s)" == CYGWIN* ]]; then
+    EXE_SUFFIX=".exe"
+fi
+GBRECOMP="$RECOMP_BUILD/bin/gbrecomp${EXE_SUFFIX}"
+EXE="$BUILD_DIR/Pokemon_Red_Blue${EXE_SUFFIX}"
 
 # Colors
 RED='\033[0;31m'
@@ -34,8 +38,9 @@ err()  { echo -e "${RED}[ERROR]${NC} $*"; }
 
 build_recompiler() {
     log "Building recompiler..."
-    cd "$RECOMP_BUILD"
-    ninja gbrecomp
+    cmake -S "$RECOMP_DIR" -B "$RECOMP_BUILD" -G Ninja \
+        -DRECOMP_UI_ROOT="$SCRIPT_DIR/recomp-ui"
+    cmake --build "$RECOMP_BUILD" --target gbrecomp
     log "Recompiler built: $GBRECOMP"
 }
 
@@ -48,32 +53,20 @@ regenerate() {
 
 build_game() {
     log "Building game..."
-    cd "$BUILD_DIR"
-
     # Ensure CMake is configured
     if [ ! -f build.ninja ]; then
         log "Running cmake..."
-        cmake .. -G Ninja
+        cmake -S "$GEN_DIR" -B "$BUILD_DIR" -G Ninja
     fi
 
     # Reconfigure if CMakeLists changed
     if [ "$GEN_DIR/CMakeLists.txt" -nt build.ninja ]; then
         log "CMakeLists.txt changed, reconfiguring..."
-        cmake .. -G Ninja
+        cmake -S "$GEN_DIR" -B "$BUILD_DIR" -G Ninja
     fi
 
     local start=$(date +%s)
-    ninja 2>&1 | while read line; do
-        if [[ "$line" == *"Building C"* ]]; then
-            # Extract just the filename
-            fname=$(echo "$line" | grep -o '[^ ]*.c.obj' | sed 's/.obj//' | sed 's/.*\///')
-            echo -e "  ${CYAN}CC${NC} $fname"
-        elif [[ "$line" == *"Linking"* ]]; then
-            echo -e "  ${GREEN}LINK${NC} $(echo "$line" | grep -o '[^ ]*.exe')"
-        else
-            echo "  $line"
-        fi
-    done
+    cmake --build "$BUILD_DIR" --parallel
     local end=$(date +%s)
     log "Build complete in $((end - start))s"
 }
@@ -97,7 +90,6 @@ build_banks() {
 run_game() {
     build_game
     log "Launching game..."
-    cd "$BUILD_DIR"
     exec "$EXE" "$@"
 }
 
@@ -132,7 +124,7 @@ case "${1:-game}" in
         ;;
     clean)
         log "Cleaning build..."
-        cd "$BUILD_DIR" && ninja -t clean 2>/dev/null || true
+        cmake --build "$BUILD_DIR" --target clean 2>/dev/null || true
         log "Done."
         ;;
     *)
