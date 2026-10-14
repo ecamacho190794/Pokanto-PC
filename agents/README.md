@@ -6,6 +6,16 @@ diagnosticar un fallo, lee este archivo y luego las notas específicas pertinent
 
 ## Organización
 
+- `../dev_config.h`: configuración universal de herramientas de desarrollo,
+  compartida por todos los idiomas. `DEVELOPMENT_MODE` debe habilitar las
+  opciones de desarrollo; cualquier bandera de herramienta futura debe
+  ignorarse cuando este interruptor sea `false`. `DEV_TOOL_RARE_CANDY`
+  habilita la tecla `1` para añadir un Caramelo Raro a la bolsa, respetando
+  el límite de 99 por espacio y la capacidad de 20 espacios.
+- `../dev_tools.h`: helpers compartidos para implementar herramientas de
+  desarrollo sin duplicar la lógica entre idiomas.
+- `incidents/dev-tools-runtime-controls.md`: configuración de Caramelo Raro,
+  eliminación del menú de ajustes durante el juego y controles fijos de teclado.
 - `platform-builds.md`: requisitos, comandos y diferencias entre macOS, Linux y
   Windows. Actualízalo cuando cambien dependencias, herramientas o instrucciones
   de compilación.
@@ -69,3 +79,13 @@ CRC de la ROM seleccionada. El cierre desde pausa pregunta si se guarda; el del
 menú de título cierra directamente. El build macOS arm64 y ambos BPS quedaron
 verificados, pero falta probar la interacción dentro del juego. Ver
 [`incidents/english-desktop-exit.md`](incidents/english-desktop-exit.md).
+
+El runtime no incluye un menú de ajustes dentro del juego: Escape y Android
+Back no lo abren, y tampoco existe una acción de menú asignable. Se conserva el
+launcher previo al juego y el overlay de diagnóstico. En teclado, Escape siempre
+envía B y Enter/Enter numérico siempre envían Start; estos dos controles no usan
+ni modifican los bindings configurables. La tecla `1` agrega un Caramelo Raro
+cuando `DEVELOPMENT_MODE` y `DEV_TOOL_RARE_CANDY` están habilitados. Estos
+comportamientos son comunes a los idiomas y su integración persistente está en
+`patches/gb-recompiled-pokanto-runtime.patch`. Ver
+[`incidents/dev-tools-runtime-controls.md`](incidents/dev-tools-runtime-controls.md).

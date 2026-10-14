@@ -1,3 +1,26 @@
+diff --git a/ANDROID.md b/ANDROID.md
+index f51dc7a..a053cd9 100644
+--- a/ANDROID.md
++++ b/ANDROID.md
+@@ -123 +122,0 @@ The default Android mapping is based on physical button position so it feels nat
+-- Guide / Home or Android Back: open the runtime settings menu
+@@ -125 +124 @@ The default Android mapping is based on physical button position so it feels nat
+-When SDL can identify the connected controller, the runtime settings menu shows labels that match that controller profile.
++Guide / Home and Android Back do not open an in-game settings menu.
+diff --git a/TODO.md b/TODO.md
+index 578f078..b028243 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -40 +40 @@
+-- [ ] Debug overlay and settings menu for performance monitoring and configuration
++- [ ] Debug overlay for performance monitoring
+diff --git a/recompiler/src/main.cpp b/recompiler/src/main.cpp
+index 71714f4..8c63dc4 100644
+--- a/recompiler/src/main.cpp
++++ b/recompiler/src/main.cpp
+@@ -816 +816 @@ static std::string make_android_readme(const fs::path& output_dir,
+-    ss << "- Guide / Home or Android Back: open the runtime settings menu\n\n";
++    ss << "- Guide / Home and Android Back do not open an in-game settings menu\n\n";
 diff --git a/runtime/CMakeLists.txt b/runtime/CMakeLists.txt
 index d4268de..a66fd02 100644
 --- a/runtime/CMakeLists.txt

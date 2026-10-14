@@ -9,6 +9,7 @@
  */
 #include <stdint.h>
 #include "game_extras.h"
+#include "dev_tools.h"
 
 /* Multi-version build: Red and Blue share identical engine code,
  * only the data tables (Pokemon stats, dialog, maps) differ. The
@@ -27,6 +28,13 @@ const uint32_t *game_get_valid_crcs(int *out_count) {
 
 /* Multi-version path is preferred; this stays zero. */
 uint32_t game_get_expected_crc32(void) { return 0; }
+
+int game_handle_dev_hotkey(struct GBContext *ctx, GBDevHotkey hotkey) {
+    if (hotkey != GB_DEV_HOTKEY_RARE_CANDY) {
+        return 0;
+    }
+    return dev_add_rare_candy(ctx, 0xD31D, 0xD31E);
+}
 
 /* Launcher title (defaults to "GB Recompiled" otherwise). One binary runs both
  * Red and Blue (see game_get_valid_crcs). */
