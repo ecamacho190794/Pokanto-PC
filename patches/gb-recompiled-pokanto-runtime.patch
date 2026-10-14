@@ -58,18 +58,29 @@ index ed247f4..4b41c61 100644
 +
 +int game_handle_dev_hotkey(struct GBContext *ctx, GBDevHotkey hotkey);
 +
-@@ -75,4 +82,4 @@
+@@ -75,2 +82,2 @@ void game_extended_view_init(struct GBContext *ctx,
 -/* Called once at the start of each armed frame's margin render. A game may
 - * refresh presentation-only backing data and must fail closed if its scene or
 +/* Called before each armed scanline's margin render. A game may refresh
 + * presentation-only backing data and must fail closed if its scene or
-  * validation contract is not satisfied. Part of the opt-in hook group. */
- void game_extended_view_update(struct GBContext *ctx);
 @@ -100,0 +108,4 @@ const char *game_get_platform(void);
 +/* Return a short region label for the launcher (for example "USA / Europe"
 + * or "España"). Default: "USA". */
 +const char *game_get_region(void);
 +
+diff --git a/runtime/include/gb_widescreen.h b/runtime/include/gb_widescreen.h
+index 2abebc0..585325d 100644
+--- a/runtime/include/gb_widescreen.h
++++ b/runtime/include/gb_widescreen.h
+@@ -10,2 +10,3 @@
+- * width request comes from GBCRECOMP_VIEW_WIDTH / --view-width. Arming only
+- * happens in the SDL platform path, never in differential/cosim runs.
++ * width request comes from the launcher aspect choice or
++ * GBCRECOMP_VIEW_WIDTH / --view-width. Arming only happens in the SDL platform
++ * path, never in differential/cosim runs.
+@@ -70 +71 @@ void gb_ws_invalidate_obj_context(void);
+-/* CLI request (parsed in generated main, before arming). 0 = none. */
++/* Width request supplied by the platform or CLI before arming. 0 = none. */
 diff --git a/runtime/include/launcher.h b/runtime/include/launcher.h
 index f025bd3..3fe24b9 100644
 --- a/runtime/include/launcher.h
@@ -96,6 +107,17 @@ index 7709204..4923103 100644
 +++ b/runtime/include/launcher_ui_seam.h
 @@ -28,0 +29 @@ extern "C" {
 +#define GB_LAUNCHER_ERROR       3  /* required ROM missing/invalid: show alert and exit */
+diff --git a/runtime/include/ppu.h b/runtime/include/ppu.h
+index 96e7a00..292f1c3 100644
+--- a/runtime/include/ppu.h
++++ b/runtime/include/ppu.h
+@@ -194 +194,3 @@ typedef struct GBPPU {
+-    ScanlineSprite scanline_sprites[10];
++    /* Keep the hardware's first 10 native sprites plus margin-only candidates
++     * for the host's extended viewport. */
++    ScanlineSprite scanline_sprites[40];
+@@ -195,0 +198 @@ typedef struct GBPPU {
++    int      scanline_native_sprite_count;
 diff --git a/runtime/src/launcher.c b/runtime/src/launcher.c
 index 5fb092f..2a57679 100644
 --- a/runtime/src/launcher.c
@@ -277,7 +299,7 @@ index 5fb092f..2a57679 100644
 +}
 +
 diff --git a/runtime/src/launcher_ui_seam.c b/runtime/src/launcher_ui_seam.c
-index 62a3b83..92e77ff 100644
+index 62a3b83..2bdf6f2 100644
 --- a/runtime/src/launcher_ui_seam.c
 +++ b/runtime/src/launcher_ui_seam.c
 @@ -8,0 +9 @@
@@ -312,28 +334,35 @@ index 62a3b83..92e77ff 100644
 +    seam_write_rom_cfg(romcfg_path, automatic_rom);
 +#endif
 +
-@@ -157,2 +185,2 @@ int gb_launcher_preboot(void) {
+@@ -145,0 +174,2 @@ int gb_launcher_preboot(void) {
++    ls.aspect_index  = seam_read_int(prefs_path, "video.aspect_index", 0);
++    if (ls.aspect_index < 0 || ls.aspect_index > 4) ls.aspect_index = 0;
+@@ -157,2 +187,2 @@ int gb_launcher_preboot(void) {
 -    ls.audio_freq    = 32768;
 -    ls.volume        = seam_read_int(prefs_path, "audio.volume_percent", 100);
 +    ls.audio_freq    = 44100;
 +    ls.volume        = 100;
-@@ -169 +197,4 @@ int gb_launcher_preboot(void) {
+@@ -169 +199,4 @@ int gb_launcher_preboot(void) {
 -    gi.region = "USA";
 +    gi.region = game_get_region();
 +#if defined(GBRECOMP_POKANTO_FIXED_ROM)
 +    gi.rom_selection_locked = 1;
 +#endif
-@@ -215,0 +247,3 @@ int gb_launcher_preboot(void) {
+@@ -215,0 +249,3 @@ int gb_launcher_preboot(void) {
 +#if defined(GBRECOMP_POKANTO_FIXED_ROM)
 +    snprintf(initial_rom, sizeof(initial_rom), "%s", automatic_rom);
 +#endif
-@@ -218,2 +252,2 @@ int gb_launcher_preboot(void) {
+@@ -218,2 +254,2 @@ int gb_launcher_preboot(void) {
 -    snprintf(title, sizeof(title), "%s \xE2\x80\x94 Launcher",
 -             gi.name ? gi.name : "Game Boy");
 +    snprintf(title, sizeof(title), "%s \xE2\x80\x94 %s",
 +             gi.name ? gi.name : "Game Boy", POKANTO_TEXT_LAUNCHER_TITLE);
+@@ -232,0 +269,3 @@ int gb_launcher_preboot(void) {
++    int aspect_index = ls.aspect_index;
++    if (aspect_index < 0 || aspect_index > 4) aspect_index = 0;
++    seam_upsert_int(prefs_path, "video.aspect_index",   aspect_index);
 diff --git a/runtime/src/platform_sdl.cpp b/runtime/src/platform_sdl.cpp
-index 465ef72..a1b80e2 100644
+index 465ef72..a4b9260 100644
 --- a/runtime/src/platform_sdl.cpp
 +++ b/runtime/src/platform_sdl.cpp
 @@ -23,0 +24 @@ extern "C" {
@@ -344,25 +373,31 @@ index 465ef72..a1b80e2 100644
 +#else
 @@ -35,0 +40 @@ extern "C" void gb_debug_server_set_context(GBContext *ctx);
 +#endif
-@@ -104,2 +108,0 @@ static GBPlatformTimingInfo g_last_timing = {};
+@@ -76,0 +82,2 @@ static GLuint g_game_tex = 0;
++static int g_game_tex_width = 0;
++static int g_game_tex_height = 0;
+@@ -87,0 +95,2 @@ static int g_scale = 5;
++/* Launcher aspect vocabulary: 0=Original, 1=4:3, 2=16:9, 3=16:10, 4=21:9. */
++static int g_aspect_index = 0;
+@@ -104,2 +112,0 @@ static GBPlatformTimingInfo g_last_timing = {};
 -/* Menu State */
 -static bool g_show_menu = false;
-@@ -107,3 +109,0 @@ static bool g_show_overlay = false;
+@@ -107,3 +113,0 @@ static bool g_show_overlay = false;
 -#ifdef RECOMP_LAUNCHER
 -static RecompRuntimeUi* g_runtime_ui = NULL;
 -#endif
-@@ -280,2 +280 @@ typedef enum GBInputAction {
+@@ -280,2 +284 @@ typedef enum GBInputAction {
 -    GB_INPUT_ACTION_TOGGLE_MENU = 16,
 -    GB_INPUT_ACTION_COUNT = 17,
 +    GB_INPUT_ACTION_COUNT = 16,
-@@ -355,0 +355,2 @@ static bool g_keyboard_binding_pressed[GB_INPUT_ACTION_COUNT][2] = {};
+@@ -355,0 +359,2 @@ static bool g_keyboard_binding_pressed[GB_INPUT_ACTION_COUNT][2] = {};
 +static bool g_escape_as_b_pressed = false;
 +static bool g_enter_as_start_pressed = false;
-@@ -383 +383,0 @@ static const char* g_input_action_names[GB_INPUT_ACTION_COUNT] = {
+@@ -383 +387,0 @@ static const char* g_input_action_names[GB_INPUT_ACTION_COUNT] = {
 -    "Toggle Menu",
-@@ -416 +415,0 @@ static float settings_ui_scale_for_size(const ImVec2& display_size);
+@@ -416 +419,0 @@ static float settings_ui_scale_for_size(const ImVec2& display_size);
 -static const char* controller_menu_hint_text(void);
-@@ -610,8 +608,0 @@ static bool platform_uses_app_storage_for_relative_paths(void) {
+@@ -610,8 +612,0 @@ static bool platform_uses_app_storage_for_relative_paths(void) {
 -static const char* overlay_menu_hint_text(void) {
 -#if defined(__ANDROID__)
 -    return "Press Back, L3, or R3 for Menu";
@@ -371,7 +406,7 @@ index 465ef72..a1b80e2 100644
 -#endif
 -}
 -
-@@ -637,8 +627,0 @@ static float settings_ui_scale_for_size(const ImVec2& display_size) {
+@@ -637,8 +631,0 @@ static float settings_ui_scale_for_size(const ImVec2& display_size) {
 -static const char* controller_menu_hint_text(void) {
 -#if defined(__ANDROID__)
 -    return "Guide, L3, or R3: Settings Menu";
@@ -380,33 +415,53 @@ index 465ef72..a1b80e2 100644
 -#endif
 -}
 -
-@@ -662 +645 @@ static const char* overlay_visibility_hint_text(void) {
+@@ -662 +649 @@ static const char* overlay_visibility_hint_text(void) {
 -    return "Use the settings menu or a shortcut binding to toggle the overlay";
 +    return "Use F1 or a shortcut binding to toggle the overlay";
-@@ -1098 +1080,0 @@ static const char* input_action_config_name(GBInputAction action) {
+@@ -1098 +1084,0 @@ static const char* input_action_config_name(GBInputAction action) {
 -        case GB_INPUT_ACTION_TOGGLE_MENU: return "toggle_menu";
-@@ -1121,0 +1104,2 @@ static void clear_all_binding_pressed_state(void) {
+@@ -1121,0 +1108,2 @@ static void clear_all_binding_pressed_state(void) {
 +    g_escape_as_b_pressed = false;
 +    g_enter_as_start_pressed = false;
-@@ -1192 +1175,0 @@ static void set_default_input_bindings(void) {
+@@ -1192 +1179,0 @@ static void set_default_input_bindings(void) {
 -    g_keyboard_bindings[GB_INPUT_ACTION_START][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_RETURN);
-@@ -1201 +1183,0 @@ static void set_default_input_bindings(void) {
+@@ -1201 +1187,0 @@ static void set_default_input_bindings(void) {
 -    g_keyboard_bindings[GB_INPUT_ACTION_TOGGLE_MENU][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_F10);
-@@ -1221,2 +1202,0 @@ static void set_default_input_bindings(void) {
+@@ -1221,2 +1206,0 @@ static void set_default_input_bindings(void) {
 -    g_controller_bindings[GB_INPUT_ACTION_TOGGLE_MENU][0] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_LEFTSTICK);
 -    g_controller_bindings[GB_INPUT_ACTION_TOGGLE_MENU][1] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_RIGHTSTICK);
-@@ -1636,0 +1617,5 @@ static bool input_action_is_pressed(GBInputAction action) {
+@@ -1245,0 +1230,3 @@ static void load_runtime_preferences(void) {
++    g_aspect_index = 0;
++    g_pref_widescreen = 0;
++    gb_ws_set_cli_request(0);
+@@ -1314,0 +1302,7 @@ static void load_runtime_preferences(void) {
++                if (strcmp(key, "video.aspect_index") == 0) {
++                    long parsed = strtol(value, NULL, 10);
++                    if (parsed >= 0 && parsed <= 4) {
++                        g_aspect_index = (int)parsed;
++                    }
++                    continue;
++                }
+@@ -1491,0 +1486,5 @@ static void load_runtime_preferences(void) {
++    static const int aspect_widths[] = {160, 192, 256, 230, 336};
++    const int aspect_width = aspect_widths[g_aspect_index];
++    gb_ws_set_cli_request(g_aspect_index == 0
++        ? (g_pref_widescreen ? GB_WS_MAX_VIEW_WIDTH : 0)
++        : aspect_width);
+@@ -1543,0 +1543 @@ static void save_runtime_preferences(void) {
++    fprintf(file, "video.aspect_index=%d\n", g_aspect_index);
+@@ -1636,0 +1637,5 @@ static bool input_action_is_pressed(GBInputAction action) {
 +    if ((action == GB_INPUT_ACTION_B && g_escape_as_b_pressed) ||
 +        (action == GB_INPUT_ACTION_START && g_enter_as_start_pressed)) {
 +        return true;
 +    }
 +
-@@ -1692,4 +1676,0 @@ static void update_runtime_action_state(GBContext* ctx) {
+@@ -1692,4 +1696,0 @@ static void update_runtime_action_state(GBContext* ctx) {
 -                case GB_INPUT_ACTION_TOGGLE_MENU:
 -                    g_show_menu = !g_show_menu;
 -                    break;
 -
-@@ -1737,10 +1717,0 @@ static void update_effective_joypad_state(void) {
+@@ -1737,10 +1737,0 @@ static void update_effective_joypad_state(void) {
 -    /* While the in-game menu is up, hide all joypad activity from the
 -     * cart. The game keeps running (so NPCs walk, music plays, RTC
 -     * advances), but arrow keys / A / Start used to navigate the
@@ -417,7 +472,48 @@ index 465ef72..a1b80e2 100644
 -        g_joypad_buttons = 0xFF;
 -        return;
 -    }
-@@ -2619,121 +2589,0 @@ static void reset_runtime_control_defaults(void) {
+@@ -2380,0 +2372,4 @@ static void update_render_filter(void) {
++static double rendered_content_aspect_ratio(int content_w, int content_h) {
++    return content_h > 0 ? (double)content_w / (double)content_h : 1.0;
++}
++
+@@ -2383,0 +2379 @@ static void update_game_viewport(void) {
++    const double aspect_ratio = rendered_content_aspect_ratio(content_w, content_h);
+@@ -2388 +2383,0 @@ static void update_game_viewport(void) {
+-        g_game_viewport.w = content_w * g_scale;
+@@ -2389,0 +2385 @@ static void update_game_viewport(void) {
++        g_game_viewport.w = content_w * g_scale;
+@@ -2402 +2398,9 @@ static void update_game_viewport(void) {
+-    switch (g_render_scaling_mode) {
++    if (g_aspect_index != 0) {
++        /* The framebuffer itself has the selected pixel ratio. Fit that
++         * unscaled content inside fullscreen/resized windows. */
++        viewport_h = round_to_int((double)window_w / aspect_ratio);
++        if (viewport_h > window_h) {
++            viewport_h = window_h;
++            viewport_w = round_to_int((double)window_h * aspect_ratio);
++        }
++    } else switch (g_render_scaling_mode) {
+@@ -2453 +2456,0 @@ static void apply_window_scale_preset(void) {
+-    g_windowed_width = border_content_width() * g_scale;
+@@ -2454,0 +2458 @@ static void apply_window_scale_preset(void) {
++    g_windowed_width = border_content_width() * g_scale;
+@@ -2536,0 +2541,3 @@ static bool recreate_streaming_texture(void) {
++    const int texture_width = gb_ws_render_width();
++    const int texture_height = GB_SCREEN_HEIGHT;
++
+@@ -2544 +2551 @@ static bool recreate_streaming_texture(void) {
+-                 gb_ws_render_width(), GB_SCREEN_HEIGHT, 0,
++                 texture_width, texture_height, 0,
+@@ -2551,0 +2559,3 @@ static bool recreate_streaming_texture(void) {
++    g_game_tex_width = texture_width;
++    g_game_tex_height = texture_height;
++
+@@ -2574,0 +2585,3 @@ static void reset_runtime_display_defaults(void) {
++    g_aspect_index = 0;
++    g_pref_widescreen = 0;
++    gb_ws_set_cli_request(0);
+@@ -2619,121 +2631,0 @@ static void reset_runtime_control_defaults(void) {
 -#ifdef RECOMP_LAUNCHER
 -static const char* const g_runtime_scaling_choices[] = {
 -    "Pixel Perfect", "Aspect Fit", "Aspect Fill", "Stretch",
@@ -539,7 +635,72 @@ index 465ef72..a1b80e2 100644
 -}
 -#endif
 -
-@@ -3113,1131 +2963 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+@@ -2866,0 +2759,13 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
++    {
++        static int last_logged_active = -1;
++        static int last_logged_width = -1;
++        int active = g_gbws_active;
++        int width = gb_ws_render_width();
++        if (active != last_logged_active || width != last_logged_width) {
++            fprintf(stderr,
++                    "[WIDE-PRESENT-ENTRY] active=%d texture_width=%d framebuffer=%d\n",
++                    active, width, framebuffer != NULL);
++            last_logged_active = active;
++            last_logged_width = width;
++        }
++    }
+@@ -2911 +2816,11 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+-    if ((!g_game_tex || g_renderer_reset_pending) && !recreate_streaming_texture()) {
++    /* The widescreen PPU changes its framebuffer width after the SDL
++     * renderer is initialized. Keep texture storage in lockstep with that
++     * width even if arming, restoring a renderer, or a future view change
++     * happens outside the normal context-registration path. Uploading a
++     * wider frame to stale 160px storage is invalid GL and silently drops
++     * the extra columns on some drivers. */
++    const int frame_width = gb_ws_render_width();
++    if ((!g_game_tex || g_renderer_reset_pending ||
++         g_game_tex_width != frame_width ||
++         g_game_tex_height != GB_SCREEN_HEIGHT) &&
++        !recreate_streaming_texture()) {
+@@ -3035,0 +2951,7 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
++    /* Be explicit: other GL-backed UI code may alter unpack state. Our
++     * scratch buffer is tightly packed RGBA, one full extended row after
++     * another. */
++    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
++#if defined(GL_UNPACK_ROW_LENGTH)
++    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
++#endif
+@@ -3037 +2959 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+-                    gb_ws_render_width(), GB_SCREEN_HEIGHT,
++                    frame_width, GB_SCREEN_HEIGHT,
+@@ -3059,0 +2982,12 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
++    {
++        static int present_diag_logged = 0;
++        if (!present_diag_logged) {
++            fprintf(stderr,
++                    "[WIDE-PRESENT] active=%d border=%d texture_width=%d margins=%d,%d viewport=%dx%d\n",
++                    g_gbws_active, active_border != 0, gb_ws_render_width(),
++                    g_gbws_extra_left, g_gbws_extra_right,
++                    g_game_viewport.w, g_game_viewport.h);
++            present_diag_logged = 1;
++        }
++    }
++
+@@ -3086 +3020,6 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+-            int gb_x = (int)((g_game_viewport.x + GB_BORDER_INSET_X * sx) * dpr_x);
++            /* Keep the extended game view centered on the native SGB aperture.
++             * Otherwise the border path crops the uploaded wide framebuffer to
++             * 160 pixels, even though the PPU rendered its margin columns. */
++            int game_width = gb_ws_render_width();
++            int gb_x = (int)((g_game_viewport.x +
++                              (GB_BORDER_INSET_X - g_gbws_extra_left) * sx) * dpr_x);
+@@ -3088 +3027 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+-            int gb_w = (int)((GB_SCREEN_WIDTH  * sx) * dpr_x);
++            int gb_w = (int)((game_width * sx) * dpr_x);
+@@ -3095 +3034 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+-                                    GB_SCREEN_WIDTH, GB_SCREEN_HEIGHT,
++                                    game_width, GB_SCREEN_HEIGHT,
+@@ -3113,1131 +3052 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
 -    if (g_show_menu) {
 -        const float ui_scale = imgui_io.FontGlobalScale;
 -        const float footer_height = ImGui::GetFrameHeightWithSpacing() *
@@ -1672,27 +1833,27 @@ index 465ef72..a1b80e2 100644
 -        ImGui::PopStyleVar(6);
 -    } else if (g_show_overlay) {
 +    if (g_show_overlay) {
-@@ -4249 +2968,0 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+@@ -4249 +3057,0 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
 -            ImGui::Text("%s", overlay_menu_hint_text());
-@@ -4309,3 +3027,0 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+@@ -4309,3 +3116,0 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
 -#ifdef RECOMP_LAUNCHER
 -    recomp_runtime_ui_render_imgui(g_runtime_ui);
 -#endif
-@@ -4340,4 +3055,0 @@ void gb_platform_shutdown(void) {
+@@ -4340,4 +3144,0 @@ void gb_platform_shutdown(void) {
 -#ifdef RECOMP_LAUNCHER
 -        recomp_runtime_ui_destroy(g_runtime_ui);
 -        g_runtime_ui = NULL;
 -#endif
-@@ -4749 +3461,2 @@ bool gb_platform_init(int scale) {
+@@ -4749 +3550,2 @@ bool gb_platform_init(int scale) {
 -        if (gb_launcher_preboot() == GB_LAUNCHER_QUIT) {
 +        const int launcher_result = gb_launcher_preboot();
 +        if (launcher_result == GB_LAUNCHER_QUIT) {
-@@ -4752,0 +3466,4 @@ bool gb_platform_init(int scale) {
+@@ -4752,0 +3555,4 @@ bool gb_platform_init(int scale) {
 +        if (launcher_result == GB_LAUNCHER_ERROR) {
 +            /* Required ROM missing/invalid: preboot already showed the alert. */
 +            exit(1);
 +        }
-@@ -4809,3 +3526,6 @@ bool gb_platform_init(int scale) {
+@@ -4809,3 +3615,6 @@ bool gb_platform_init(int scale) {
 -    /* Request a GLES 2.0 context — same code path on desktop Mesa
 -     * (which advertises a compatible profile) and embedded Mali / Adreno
 -     * GPUs. SDL_WINDOW_OPENGL must be set BEFORE SDL_CreateWindow. */
@@ -1702,25 +1863,25 @@ index 465ef72..a1b80e2 100644
 +    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 +    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
 +#else
-@@ -4814,0 +3535 @@ bool gb_platform_init(int scale) {
+@@ -4814,0 +3624 @@ bool gb_platform_init(int scale) {
 +#endif
-@@ -4886 +3607 @@ bool gb_platform_init(int scale) {
+@@ -4886 +3696 @@ bool gb_platform_init(int scale) {
 -    /* GLES 2 backend — `#version 100` GLSL, no VAOs, runs anywhere. */
 +    /* Match the renderer backend and shader dialect to the platform context. */
-@@ -4887,0 +3609,3 @@ bool gb_platform_init(int scale) {
+@@ -4887,0 +3698,3 @@ bool gb_platform_init(int scale) {
 +#if defined(__APPLE__)
 +    ImGui_ImplOpenGL3_Init("#version 150");
 +#else
-@@ -4889,3 +3612,0 @@ bool gb_platform_init(int scale) {
+@@ -4889,3 +3701,0 @@ bool gb_platform_init(int scale) {
 -
 -#ifdef RECOMP_LAUNCHER
 -    create_runtime_ui();
-@@ -4958,0 +3680,4 @@ static bool handle_binding_capture_event(const SDL_Event* event) {
+@@ -4958,0 +3769,4 @@ static bool handle_binding_capture_event(const SDL_Event* event) {
 +            if (event->key.keysym.scancode == SDL_SCANCODE_RETURN ||
 +                event->key.keysym.scancode == SDL_SCANCODE_KP_ENTER) {
 +                return true;
 +            }
-@@ -4993,69 +3717,0 @@ static bool handle_binding_capture_event(const SDL_Event* event) {
+@@ -4993,69 +3806,0 @@ static bool handle_binding_capture_event(const SDL_Event* event) {
 -#ifdef RECOMP_LAUNCHER
 -static bool handle_shared_runtime_ui_event(const SDL_Event* event) {
 -    if (!g_runtime_ui || !event) return false;
@@ -1790,14 +1951,14 @@ index 465ef72..a1b80e2 100644
 -}
 -#endif
 -
-@@ -5082,6 +3737,0 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+@@ -5082,6 +3826,0 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
 -#ifdef RECOMP_LAUNCHER
 -    if (handle_shared_runtime_ui_event(event)) {
 -        return true;
 -    }
 -#endif
 -
-@@ -5165,7 +3814,0 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+@@ -5165,7 +3903,0 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
 -            if (event->cbutton.button == SDL_CONTROLLER_BUTTON_GUIDE) {
 -                if (pressed) {
 -                    g_show_menu = !g_show_menu;
@@ -1805,9 +1966,9 @@ index 465ef72..a1b80e2 100644
 -                return true;
 -            }
 -
-@@ -5197,0 +3841 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+@@ -5197,0 +3930 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
 +            const SDL_Scancode scancode = event->key.keysym.scancode;
-@@ -5201,7 +3845,6 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+@@ -5201,7 +3934,6 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
 -            switch (event->key.keysym.scancode) {
 -                case SDL_SCANCODE_ESCAPE:
 -                case SDL_SCANCODE_AC_BACK:
@@ -1821,7 +1982,7 @@ index 465ef72..a1b80e2 100644
 +            if (scancode == SDL_SCANCODE_RETURN || scancode == SDL_SCANCODE_KP_ENTER) {
 +                g_enter_as_start_pressed = pressed;
 +            }
-@@ -5209,2 +3852,15 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+@@ -5209,2 +3941,15 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
 -                default:
 -                    break;
 +            if (pressed && event->key.repeat == 0) {
@@ -1839,7 +2000,7 @@ index 465ef72..a1b80e2 100644
 +                if (is_dev_hotkey && game_handle_dev_hotkey(ctx, hotkey)) {
 +                    return true;
 +                }
-@@ -5213,4 +3869,8 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+@@ -5213,4 +3958,8 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
 -            for (int action = 0; action < GB_INPUT_ACTION_COUNT; action++) {
 -                for (int slot = 0; slot < 2; slot++) {
 -                    if (binding_matches_scancode(g_keyboard_bindings[action][slot], event->key.keysym.scancode)) {
@@ -1852,7 +2013,7 @@ index 465ef72..a1b80e2 100644
 +                        if (binding_matches_scancode(g_keyboard_bindings[action][slot], scancode)) {
 +                            g_keyboard_binding_pressed[action][slot] = pressed;
 +                        }
-@@ -5266,0 +3927,12 @@ bool gb_platform_poll_events(GBContext* ctx) {
+@@ -5266,0 +4016,12 @@ bool gb_platform_poll_events(GBContext* ctx) {
 +#if defined(GBRECOMP_HOST_EXIT_SIGNAL)
 +    /* A language-specific game patch may request host shutdown through the
 +     * unused FF7E/FF7F registers (signature "PK"). Consume the command and
@@ -1865,6 +2026,202 @@ index 465ef72..a1b80e2 100644
 +    }
 +#endif
 +
+diff --git a/runtime/src/ppu.c b/runtime/src/ppu.c
+index c115b45..d84a90f 100644
+--- a/runtime/src/ppu.c
++++ b/runtime/src/ppu.c
+@@ -33,0 +34,8 @@ static const uint16_t dmg_palette_rgb555[4] = {
++/* Temporary Oak's Lab trace: follows the known Poké Ball OAM group (slots
++ * 4..7) from scanline selection through margin composition. */
++static uint32_t s_oak_obj_trace_signature = 0xFFFFFFFFu;
++static unsigned s_oak_obj_trace_count = 0;
++static int s_oak_ball_native_pixels = 0;
++static int s_oak_ball_margin_pixels = 0;
++static int s_oak_trace_emit_frame = 0;
++
+@@ -618,0 +627 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
++    int margin_sprite_count = 0;
+@@ -622,0 +632,5 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
++    ppu->scanline_native_sprite_count = 0;
++    if (ppu->ly == 60) {
++        s_oak_ball_native_pixels = 0;
++        s_oak_ball_margin_pixels = 0;
++    }
+@@ -626 +640 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
+-    for (int i = 0; i < 40 && sprite_count < 10; i++) {
++    for (int i = 0; i < 40; i++) {
+@@ -635,0 +650,6 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
++            int screen_x = g_gbws_oam_sidecar
++                ? (int)g_gbws_oam_x16[i] - 8
++                : (int)sprite->x - 8;
++            bool native_slot = sprite_count < 10;
++            bool margin_candidate = g_gbws_active &&
++                (screen_x < 0 || screen_x + 8 > GB_SCREEN_WIDTH);
+@@ -637,0 +658,9 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
++            int list_index;
++
++            /* Preserve the native OAM selection exactly: its first ten
++             * Y-intersecting entries retain slots and priority. Beyond those,
++             * append only sprites whose pixels can enter an extended margin. */
++            if (!native_slot && !margin_candidate) {
++                continue;
++            }
++            list_index = native_slot ? sprite_count++ : 10 + margin_sprite_count++;
+@@ -651 +680 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
+-            sprites[sprite_count].oam_index = i;
++            sprites[list_index].oam_index = i;
+@@ -656,6 +685,4 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
+-            sprites[sprite_count].screen_x = g_gbws_oam_sidecar
+-                ? (int)g_gbws_oam_x16[i] - 8
+-                : (int)sprite->x - 8;
+-            sprites[sprite_count].x_pos = sprite->x;
+-            sprites[sprite_count].flags = sprite->flags;
+-            sprites[sprite_count].palette = cgb_mode
++            sprites[list_index].screen_x = screen_x;
++            sprites[list_index].x_pos = sprite->x;
++            sprites[list_index].flags = sprite->flags;
++            sprites[list_index].palette = cgb_mode
+@@ -664,4 +691,3 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
+-            sprites[sprite_count].behind_bg = (sprite->flags & OAM_PRIORITY) != 0;
+-            sprites[sprite_count].lo = vram_read_bank(ctx, tile_bank, (uint16_t)(0x8000 + tile_idx * 16 + line * 2));
+-            sprites[sprite_count].hi = vram_read_bank(ctx, tile_bank, (uint16_t)(0x8000 + tile_idx * 16 + line * 2 + 1));
+-            sprite_count++;
++            sprites[list_index].behind_bg = (sprite->flags & OAM_PRIORITY) != 0;
++            sprites[list_index].lo = vram_read_bank(ctx, tile_bank, (uint16_t)(0x8000 + tile_idx * 16 + line * 2));
++            sprites[list_index].hi = vram_read_bank(ctx, tile_bank, (uint16_t)(0x8000 + tile_idx * 16 + line * 2 + 1));
+@@ -672,0 +699 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
++        sort_scanline_sprites(sprites + 10, margin_sprite_count);
+@@ -675 +702,2 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
+-    ppu->scanline_sprite_list_count = sprite_count;
++    ppu->scanline_native_sprite_count = sprite_count;
++    ppu->scanline_sprite_list_count = sprite_count + margin_sprite_count;
+@@ -687 +715,3 @@ static void render_sprites_segment(GBPPU* ppu, GBContext* ctx, int x_start, int
+-    int sprite_count = ppu->scanline_sprite_list_count;
++    int sprite_count = (x_start < 0 || x_end > GB_SCREEN_WIDTH)
++        ? ppu->scanline_sprite_list_count
++        : ppu->scanline_native_sprite_count;
+@@ -691,0 +722,2 @@ static void render_sprites_segment(GBPPU* ppu, GBContext* ctx, int x_start, int
++    int oak_trace_emit = 0;
++    uint32_t oak_signature = 2166136261u;
+@@ -693,4 +725,4 @@ static void render_sprites_segment(GBPPU* ppu, GBContext* ctx, int x_start, int
+-    /* Sprites only reach the margins through the X16 sidecar. Without it a
+-     * wrapped 8-bit X (e.g. an object just off-left stored as 0xE0) would
+-     * ghost into the right margin, so clamp composite to the native span. */
+-    if (g_gbws_oam_sidecar) {
++    /* The extended view can composite sprites in its added margins. When the
++     * game supplies the X16 sidecar, it also disambiguates wrapped positions;
++     * otherwise the native 8-bit OAM X remains the source of screen position. */
++    if (g_gbws_active) {
+@@ -706,0 +739,45 @@ static void render_sprites_segment(GBPPU* ppu, GBContext* ctx, int x_start, int
++    /* OAM coordinates place the table Poké Ball in slots 8..11 at LY 60..75. */
++    if (ppu->ly >= 60 && ppu->ly <= 75 &&
++        x_start == GB_SCREEN_WIDTH && g_gbws_active) {
++        if (ppu->ly == 60) {
++        for (int slot = 8; slot <= 11; ++slot) {
++            const uint8_t* entry = ctx->oam + slot * 4;
++            oak_signature = (oak_signature ^ entry[0]) * 16777619u;
++            oak_signature = (oak_signature ^ entry[1]) * 16777619u;
++            oak_signature = (oak_signature ^ entry[2]) * 16777619u;
++            oak_signature = (oak_signature ^ entry[3]) * 16777619u;
++        }
++        oak_signature = (oak_signature ^ (uint32_t)ppu->scanline_sprite_list_count) * 16777619u;
++        oak_signature = (oak_signature ^ ppu->lcdc) * 16777619u;
++        oak_signature = (oak_signature ^ ppu->obp0) * 16777619u;
++        oak_signature = (oak_signature ^ ppu->obp1) * 16777619u;
++        oak_signature = (oak_signature ^ ppu->bgp) * 16777619u;
++        if (oak_signature != s_oak_obj_trace_signature &&
++            s_oak_obj_trace_count < 40) {
++            s_oak_obj_trace_signature = oak_signature;
++            ++s_oak_obj_trace_count;
++            oak_trace_emit = 1;
++            fprintf(stderr, "[OBJ-PPU] ly=60 list=%d native=%d lcdc=%02X obp0=%02X obp1=%02X bgp=%02X slots=",
++                    ppu->scanline_sprite_list_count,
++                    ppu->scanline_native_sprite_count,
++                    ppu->lcdc, ppu->obp0, ppu->obp1, ppu->bgp);
++            for (int slot = 8; slot <= 11; ++slot) {
++                const uint8_t* entry = ctx->oam + slot * 4;
++                int screen_x = g_gbws_oam_sidecar
++                    ? (int)g_gbws_oam_x16[slot] - 8
++                    : (int)entry[1] - 8;
++                int selected = 0;
++                for (int i = 0; i < ppu->scanline_sprite_list_count; ++i) {
++                    if (ppu->scanline_sprites[i].oam_index == slot) {
++                        selected = 1;
++                        break;
++                    }
++                }
++                fprintf(stderr, "%s%d:%02X,%d,%d", slot == 8 ? "" : "/",
++                        slot, entry[2], screen_x, selected);
++            }
++            fputc('\n', stderr);
++        }
++        }
++    }
++
+@@ -744 +820,0 @@ static void render_sprites_segment(GBPPU* ppu, GBContext* ctx, int x_start, int
+-
+@@ -780,0 +857,38 @@ static void render_sprites_segment(GBPPU* ppu, GBContext* ctx, int x_start, int
++        if (ppu->ly >= 60 && ppu->ly <= 75 &&
++            chosen_sprite->oam_index >= 8 &&
++            chosen_sprite->oam_index <= 11) {
++            if (in_margin) {
++                ++s_oak_ball_margin_pixels;
++            } else {
++                ++s_oak_ball_native_pixels;
++            }
++        }
++    }
++    if (ppu->ly >= 60 && ppu->ly <= 75 &&
++        x_start == GB_SCREEN_WIDTH && g_gbws_active) {
++        s_oak_trace_emit_frame |= oak_trace_emit;
++        if (s_oak_trace_emit_frame) {
++            fprintf(stderr, "[OBJ-MARGIN-ROW] ly=%u x=160..175 rgb555=", ppu->ly);
++            for (int x = 160; x < 176 && x < GB_SCREEN_WIDTH + ppu->view_extra_right; ++x) {
++                fprintf(stderr, "%s%04X", x == 160 ? "" : ",",
++                        ppu->color_framebuffer[row + x]);
++            }
++            fputc('\n', stderr);
++        }
++        if (ppu->ly == 75 && s_oak_trace_emit_frame) {
++            fprintf(stderr, "[OBJ-PPU-PIXELS] ly=60-75 native=%d margin=%d\n",
++                    s_oak_ball_native_pixels, s_oak_ball_margin_pixels);
++            fprintf(stderr, "[OBJ-FINAL] ly=75 x=144..159 rgb555=");
++            for (int x = 144; x < 160; ++x) {
++                fprintf(stderr, "%s%04X", x == 144 ? "" : ",",
++                        ppu->color_framebuffer[row + x]);
++            }
++            fputc('\n', stderr);
++            fprintf(stderr, "[OBJ-MARGIN-FINAL] ly=75 x=160..175 rgb555=");
++            for (int x = 160; x < 176 && x < GB_SCREEN_WIDTH + ppu->view_extra_right; ++x) {
++                fprintf(stderr, "%s%04X", x == 160 ? "" : ",",
++                        ppu->color_framebuffer[row + x]);
++            }
++            fputc('\n', stderr);
++            s_oak_trace_emit_frame = 0;
++        }
+@@ -827,10 +941,12 @@ static void render_view_margins(GBPPU* ppu, GBContext* ctx) {
+-    if (ppu->ly == 0) {
+-        game_extended_view_update(ctx);
+-        memcpy(ppu->ws_margin_bg_palette_ram, ppu->bg_palette_ram,
+-               sizeof(ppu->ws_margin_bg_palette_ram));
+-        memcpy(ppu->ws_margin_obj_palette_ram, ppu->obj_palette_ram,
+-               sizeof(ppu->ws_margin_obj_palette_ram));
+-        ppu->ws_margin_bgp = ppu->bgp;
+-        ppu->ws_margin_obp0 = ppu->obp0;
+-        ppu->ws_margin_obp1 = ppu->obp1;
+-    }
++    game_extended_view_update(ctx);
++    /* Margin composition happens after native mode 3 on every scanline, so
++     * mirror that line's end-of-mode-3 palette state each time. Capturing only
++     * at LY 0 makes objects disappear or change color when the game updates
++     * OBP/BGP during the frame. */
++    memcpy(ppu->ws_margin_bg_palette_ram, ppu->bg_palette_ram,
++           sizeof(ppu->ws_margin_bg_palette_ram));
++    memcpy(ppu->ws_margin_obj_palette_ram, ppu->obj_palette_ram,
++           sizeof(ppu->ws_margin_obj_palette_ram));
++    ppu->ws_margin_bgp = ppu->bgp;
++    ppu->ws_margin_obp0 = ppu->obp0;
++    ppu->ws_margin_obp1 = ppu->obp1;
 diff --git a/runtime/src/shader_pipeline.cpp b/runtime/src/shader_pipeline.cpp
 index 3390e22..476928f 100644
 --- a/runtime/src/shader_pipeline.cpp
@@ -1942,168 +2299,3 @@ index 3390e22..476928f 100644
 +#if defined(__APPLE__)
 +    glBindVertexArray(0);
 +#endif
-diff --git a/runtime/src/game_defaults/game_default_get_region.c b/runtime/src/game_defaults/game_default_get_region.c
-new file mode 100644
-index 0000000..1a27892
---- /dev/null
-+++ b/runtime/src/game_defaults/game_default_get_region.c
-@@ -0,0 +1,5 @@
-+/* Auto-split default for one game hook. See game_default_get_name.c. */
-+#include "game_extras.h"
-+#include "gbrt.h"
-+
-+const char *game_get_region(void) { return "USA"; }
-diff --git a/runtime/src/game_defaults/game_default_handle_dev_hotkey.c b/runtime/src/game_defaults/game_default_handle_dev_hotkey.c
-new file mode 100644
-index 0000000..4edec18
---- /dev/null
-+++ b/runtime/src/game_defaults/game_default_handle_dev_hotkey.c
-@@ -0,0 +1,7 @@
-+#include "game_extras.h"
-+
-+int game_handle_dev_hotkey(struct GBContext *ctx, GBDevHotkey hotkey) {
-+    (void)ctx;
-+    (void)hotkey;
-+    return 0;
-+}
-diff --git a/runtime/src/platform_sdl.cpp b/runtime/src/platform_sdl.cpp
---- a/runtime/src/platform_sdl.cpp
-+++ b/runtime/src/platform_sdl.cpp
-@@ -92,0 +93,2 @@
-+/* Launcher aspect vocabulary: 0=Original, 1=4:3, 2=16:9, 3=16:10, 4=21:9. */
-+static int g_aspect_index = 0;
-@@ -1291,0 +1294,7 @@
-+                    }
-+                    continue;
-+                }
-+                if (strcmp(key, "video.aspect_index") == 0) {
-+                    long parsed = strtol(value, NULL, 10);
-+                    if (parsed >= 0 && parsed <= 4) {
-+                        g_aspect_index = (int)parsed;
-@@ -1523,0 +1533 @@
-+    fprintf(file, "video.aspect_index=%d\n", g_aspect_index);
-@@ -2349,0 +2360,12 @@
-+}
-+
-+static double selected_aspect_ratio(int content_w, int content_h) {
-+    switch (g_aspect_index) {
-+        case 1: return 4.0 / 3.0;
-+        case 2: return 16.0 / 9.0;
-+        case 3: return 16.0 / 10.0;
-+        case 4: return 21.0 / 9.0;
-+        case 0:
-+        default:
-+            return content_h > 0 ? (double)content_w / (double)content_h : 1.0;
-+    }
-@@ -2354,0 +2377 @@
-+    const double aspect_ratio = selected_aspect_ratio(content_w, content_h);
-@@ -2359,2 +2382,4 @@
--        g_game_viewport.w = content_w * g_scale;
--        g_game_viewport.h = content_h * g_scale;
-+        g_game_viewport.h = content_h * g_scale;
-+        g_game_viewport.w = g_aspect_index == 0
-+            ? content_w * g_scale
-+            : round_to_int((double)g_game_viewport.h * aspect_ratio);
-@@ -2373 +2398,9 @@
--    switch (g_render_scaling_mode) {
-+    if (g_aspect_index != 0) {
-+        /* The selected display ratio applies to the complete game image.
-+         * Fit it inside fullscreen/resized windows and center any bars. */
-+        viewport_h = round_to_int((double)window_w / aspect_ratio);
-+        if (viewport_h > window_h) {
-+            viewport_h = window_h;
-+            viewport_w = round_to_int((double)window_h * aspect_ratio);
-+        }
-+    } else switch (g_render_scaling_mode) {
-@@ -2424 +2456,0 @@
--    g_windowed_width = border_content_width() * g_scale;
-@@ -2425,0 +2458,5 @@
-+    g_windowed_width = g_aspect_index == 0
-+        ? border_content_width() * g_scale
-+        : round_to_int((double)g_windowed_height *
-+                       selected_aspect_ratio(border_content_width(),
-+                                             border_content_height()));
-@@ -2545,0 +2583 @@
-+    g_aspect_index = 0;
-diff --git a/runtime/src/launcher_ui_seam.c b/runtime/src/launcher_ui_seam.c
---- a/runtime/src/launcher_ui_seam.c
-+++ b/runtime/src/launcher_ui_seam.c
-@@ -173,0 +174,2 @@
-+    ls.aspect_index  = seam_read_int(prefs_path, "video.aspect_index", 0);
-+    if (ls.aspect_index < 0 || ls.aspect_index > 4) ls.aspect_index = 0;
-@@ -266,0 +269,3 @@
-+    int aspect_index = ls.aspect_index;
-+    if (aspect_index < 0 || aspect_index > 4) aspect_index = 0;
-+    seam_upsert_int(prefs_path, "video.aspect_index",   aspect_index);
-diff --git a/runtime/src/platform_sdl.cpp b/runtime/src/platform_sdl.cpp
---- a/runtime/src/platform_sdl.cpp
-+++ b/runtime/src/platform_sdl.cpp
-@@ -1227,0 +1228,3 @@
-+    g_aspect_index = 0;
-+    g_pref_widescreen = 0;
-+    gb_ws_set_cli_request(0);
-@@ -1480,0 +1484,5 @@
-+    static const int aspect_widths[] = {160, 192, 256, 230, 336};
-+    const int aspect_width = aspect_widths[g_aspect_index];
-+    gb_ws_set_cli_request(g_aspect_index == 0
-+        ? (g_pref_widescreen ? GB_WS_MAX_VIEW_WIDTH : 0)
-+        : aspect_width);
-@@ -2362,10 +2370,2 @@
--static double selected_aspect_ratio(int content_w, int content_h) {
--    switch (g_aspect_index) {
--        case 1: return 4.0 / 3.0;
--        case 2: return 16.0 / 9.0;
--        case 3: return 16.0 / 10.0;
--        case 4: return 21.0 / 9.0;
--        case 0:
--        default:
--            return content_h > 0 ? (double)content_w / (double)content_h : 1.0;
--    }
-+static double rendered_content_aspect_ratio(int content_w, int content_h) {
-+    return content_h > 0 ? (double)content_w / (double)content_h : 1.0;
-@@ -2377 +2377 @@
--    const double aspect_ratio = selected_aspect_ratio(content_w, content_h);
-+    const double aspect_ratio = rendered_content_aspect_ratio(content_w, content_h);
-@@ -2383,3 +2383 @@
--        g_game_viewport.w = g_aspect_index == 0
--            ? content_w * g_scale
--            : round_to_int((double)g_game_viewport.h * aspect_ratio);
-+        g_game_viewport.w = content_w * g_scale;
-@@ -2399,2 +2397,2 @@
--        /* The selected display ratio applies to the complete game image.
--         * Fit it inside fullscreen/resized windows and center any bars. */
-+        /* The framebuffer itself has the selected pixel ratio. Fit that
-+         * unscaled content inside fullscreen/resized windows. */
-@@ -2458,5 +2456 @@
--    g_windowed_width = g_aspect_index == 0
--        ? border_content_width() * g_scale
--        : round_to_int((double)g_windowed_height *
--                       selected_aspect_ratio(border_content_width(),
--                                             border_content_height()));
-+    g_windowed_width = border_content_width() * g_scale;
-@@ -2583,0 +2578,2 @@
-+    g_pref_widescreen = 0;
-+    gb_ws_set_cli_request(0);
-diff --git a/runtime/include/gb_widescreen.h b/runtime/include/gb_widescreen.h
---- a/runtime/include/gb_widescreen.h
-+++ b/runtime/include/gb_widescreen.h
-@@ -10,2 +10,3 @@
-- * width request comes from GBCRECOMP_VIEW_WIDTH / --view-width. Arming only
-- * happens in the SDL platform path, never in differential/cosim runs.
-+ * width request comes from the launcher aspect choice or
-+ * GBCRECOMP_VIEW_WIDTH / --view-width. Arming only happens in the SDL platform
-+ * path, never in differential/cosim runs.
-@@ -70 +71 @@ void gb_ws_invalidate_obj_context(void);
--/* CLI request (parsed in generated main, before arming). 0 = none. */
-+/* Width request supplied by the platform or CLI before arming. 0 = none. */
-diff --git a/runtime/src/ppu.c b/runtime/src/ppu.c
-index c115b45..2ebc448 100644
---- a/runtime/src/ppu.c
-+++ b/runtime/src/ppu.c
-@@ -827,3 +827,3 @@
--    if (ppu->ly == 0) {
--        game_extended_view_update(ctx);
-+    game_extended_view_update(ctx);
-+    if (ppu->ly == 0) {
-         memcpy(ppu->ws_margin_bg_palette_ram, ppu->bg_palette_ram,
-                sizeof(ppu->ws_margin_bg_palette_ram));

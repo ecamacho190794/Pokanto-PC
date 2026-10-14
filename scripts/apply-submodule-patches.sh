@@ -26,3 +26,4 @@ apply_patch_once() {
 
 apply_patch_once "$ROOT/gb-recompiled" "$ROOT/patches/gb-recompiled-pokanto-runtime.patch"
 apply_patch_once "$ROOT/recomp-ui" "$ROOT/patches/recomp-ui-pokanto-launcher.patch"
+apply_patch_once "$ROOT/third_party/pokered-es" "$ROOT/patches/pokered-es-widescreen-objects.patch"

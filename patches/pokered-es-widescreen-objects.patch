@@ -1,0 +1,32 @@
+diff --git a/engine/overworld/movement.asm b/engine/overworld/movement.asm
+index 7f61bd0..089d51c 100644
+--- a/engine/overworld/movement.asm
++++ b/engine/overworld/movement.asm
+@@ -490,0 +491,13 @@ Func_5119:
++; Add the host-provided extended-view radius to the normal visibility limit.
++; BC is preserved because callers compare against B after this calculation.
++MACRO add_widescreen_sprite_radius
++	push bc
++	ld c, a
++	ld a, [wGBRecompViewExtraTiles]
++	add SCREEN_WIDTH / 2 - 1
++	ld b, a
++	ld a, c
++	add b
++	pop bc
++ENDM
++
+@@ -522 +535 @@ CheckSpriteAvailability:
+-	add SCREEN_WIDTH / 2 - 1
++	add_widescreen_sprite_radius
+diff --git a/ram/wram.asm b/ram/wram.asm
+index b65cc48..320a6c5 100644
+--- a/ram/wram.asm
++++ b/ram/wram.asm
+@@ -417 +417,5 @@ wBoostExpByExpAll:: db
+-	ds 59
++; Host-controlled horizontal radius for overworld object visibility. This uses
++; one byte from the following reserved gap, preserving all later WRAM addresses.
++wGBRecompViewExtraTiles:: db
++
++	ds 58

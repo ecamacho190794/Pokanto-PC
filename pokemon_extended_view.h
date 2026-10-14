@@ -13,6 +13,7 @@ enum {
     POKERED_VISIBLE_TILEMAP_WIDTH = 20,
     POKERED_VISIBLE_TILEMAP_HEIGHT = 18,
     POKERED_SCROLL_PREFETCH_PIXELS = 16,
+    POKERED_WS_EXTRA_OBJECT_TILES = 0xCC5C,
 };
 
 typedef struct {
@@ -176,6 +177,18 @@ void game_extended_view_update(struct GBContext *ctx) {
 
     if (!ctx || !ctx->rom || !ctx->wram || !ctx->vram) {
         return;
+    }
+
+    /* The ROM normally marks map objects outside its 160px screen invisible
+     * before they ever reach OAM. Keep that horizontal culling radius in sync
+     * with the extended view. One object-map tile spans 16 screen pixels. */
+    {
+        int extra = (int)(s_extra_left > s_extra_right
+            ? s_extra_left : s_extra_right);
+        uint8_t radius = (s_extended_view.valid &&
+                          !gb_read8(ctx, POKERED_W_IS_IN_BATTLE))
+            ? (uint8_t)((extra + 15) / 16) : 0;
+        gb_write8(ctx, POKERED_WS_EXTRA_OBJECT_TILES, radius);
     }
 
     /* Current visible scanline (LY, 0xFF44). Kept in sync by the PPU. */
