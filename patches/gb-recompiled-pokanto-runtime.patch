@@ -47,7 +47,7 @@ index d4268de..a66fd02 100644
 +        target_compile_definitions(gbrt PRIVATE LNG_GLES2)
 +    endif()
 diff --git a/runtime/include/game_extras.h b/runtime/include/game_extras.h
-index ed247f4..946c969 100644
+index ed247f4..4b41c61 100644
 --- a/runtime/include/game_extras.h
 +++ b/runtime/include/game_extras.h
 @@ -19,0 +20,7 @@ struct GBContext;
@@ -58,6 +58,13 @@ index ed247f4..946c969 100644
 +
 +int game_handle_dev_hotkey(struct GBContext *ctx, GBDevHotkey hotkey);
 +
+@@ -75,4 +82,4 @@
+-/* Called once at the start of each armed frame's margin render. A game may
+- * refresh presentation-only backing data and must fail closed if its scene or
++/* Called before each armed scanline's margin render. A game may refresh
++ * presentation-only backing data and must fail closed if its scene or
+  * validation contract is not satisfied. Part of the opt-in hook group. */
+ void game_extended_view_update(struct GBContext *ctx);
 @@ -100,0 +108,4 @@ const char *game_get_platform(void);
 +/* Return a short region label for the launcher (for example "USA / Europe"
 + * or "España"). Default: "USA". */
@@ -1959,3 +1966,144 @@ index 0000000..4edec18
 +    (void)hotkey;
 +    return 0;
 +}
+diff --git a/runtime/src/platform_sdl.cpp b/runtime/src/platform_sdl.cpp
+--- a/runtime/src/platform_sdl.cpp
++++ b/runtime/src/platform_sdl.cpp
+@@ -92,0 +93,2 @@
++/* Launcher aspect vocabulary: 0=Original, 1=4:3, 2=16:9, 3=16:10, 4=21:9. */
++static int g_aspect_index = 0;
+@@ -1291,0 +1294,7 @@
++                    }
++                    continue;
++                }
++                if (strcmp(key, "video.aspect_index") == 0) {
++                    long parsed = strtol(value, NULL, 10);
++                    if (parsed >= 0 && parsed <= 4) {
++                        g_aspect_index = (int)parsed;
+@@ -1523,0 +1533 @@
++    fprintf(file, "video.aspect_index=%d\n", g_aspect_index);
+@@ -2349,0 +2360,12 @@
++}
++
++static double selected_aspect_ratio(int content_w, int content_h) {
++    switch (g_aspect_index) {
++        case 1: return 4.0 / 3.0;
++        case 2: return 16.0 / 9.0;
++        case 3: return 16.0 / 10.0;
++        case 4: return 21.0 / 9.0;
++        case 0:
++        default:
++            return content_h > 0 ? (double)content_w / (double)content_h : 1.0;
++    }
+@@ -2354,0 +2377 @@
++    const double aspect_ratio = selected_aspect_ratio(content_w, content_h);
+@@ -2359,2 +2382,4 @@
+-        g_game_viewport.w = content_w * g_scale;
+-        g_game_viewport.h = content_h * g_scale;
++        g_game_viewport.h = content_h * g_scale;
++        g_game_viewport.w = g_aspect_index == 0
++            ? content_w * g_scale
++            : round_to_int((double)g_game_viewport.h * aspect_ratio);
+@@ -2373 +2398,9 @@
+-    switch (g_render_scaling_mode) {
++    if (g_aspect_index != 0) {
++        /* The selected display ratio applies to the complete game image.
++         * Fit it inside fullscreen/resized windows and center any bars. */
++        viewport_h = round_to_int((double)window_w / aspect_ratio);
++        if (viewport_h > window_h) {
++            viewport_h = window_h;
++            viewport_w = round_to_int((double)window_h * aspect_ratio);
++        }
++    } else switch (g_render_scaling_mode) {
+@@ -2424 +2456,0 @@
+-    g_windowed_width = border_content_width() * g_scale;
+@@ -2425,0 +2458,5 @@
++    g_windowed_width = g_aspect_index == 0
++        ? border_content_width() * g_scale
++        : round_to_int((double)g_windowed_height *
++                       selected_aspect_ratio(border_content_width(),
++                                             border_content_height()));
+@@ -2545,0 +2583 @@
++    g_aspect_index = 0;
+diff --git a/runtime/src/launcher_ui_seam.c b/runtime/src/launcher_ui_seam.c
+--- a/runtime/src/launcher_ui_seam.c
++++ b/runtime/src/launcher_ui_seam.c
+@@ -173,0 +174,2 @@
++    ls.aspect_index  = seam_read_int(prefs_path, "video.aspect_index", 0);
++    if (ls.aspect_index < 0 || ls.aspect_index > 4) ls.aspect_index = 0;
+@@ -266,0 +269,3 @@
++    int aspect_index = ls.aspect_index;
++    if (aspect_index < 0 || aspect_index > 4) aspect_index = 0;
++    seam_upsert_int(prefs_path, "video.aspect_index",   aspect_index);
+diff --git a/runtime/src/platform_sdl.cpp b/runtime/src/platform_sdl.cpp
+--- a/runtime/src/platform_sdl.cpp
++++ b/runtime/src/platform_sdl.cpp
+@@ -1227,0 +1228,3 @@
++    g_aspect_index = 0;
++    g_pref_widescreen = 0;
++    gb_ws_set_cli_request(0);
+@@ -1480,0 +1484,5 @@
++    static const int aspect_widths[] = {160, 192, 256, 230, 336};
++    const int aspect_width = aspect_widths[g_aspect_index];
++    gb_ws_set_cli_request(g_aspect_index == 0
++        ? (g_pref_widescreen ? GB_WS_MAX_VIEW_WIDTH : 0)
++        : aspect_width);
+@@ -2362,10 +2370,2 @@
+-static double selected_aspect_ratio(int content_w, int content_h) {
+-    switch (g_aspect_index) {
+-        case 1: return 4.0 / 3.0;
+-        case 2: return 16.0 / 9.0;
+-        case 3: return 16.0 / 10.0;
+-        case 4: return 21.0 / 9.0;
+-        case 0:
+-        default:
+-            return content_h > 0 ? (double)content_w / (double)content_h : 1.0;
+-    }
++static double rendered_content_aspect_ratio(int content_w, int content_h) {
++    return content_h > 0 ? (double)content_w / (double)content_h : 1.0;
+@@ -2377 +2377 @@
+-    const double aspect_ratio = selected_aspect_ratio(content_w, content_h);
++    const double aspect_ratio = rendered_content_aspect_ratio(content_w, content_h);
+@@ -2383,3 +2383 @@
+-        g_game_viewport.w = g_aspect_index == 0
+-            ? content_w * g_scale
+-            : round_to_int((double)g_game_viewport.h * aspect_ratio);
++        g_game_viewport.w = content_w * g_scale;
+@@ -2399,2 +2397,2 @@
+-        /* The selected display ratio applies to the complete game image.
+-         * Fit it inside fullscreen/resized windows and center any bars. */
++        /* The framebuffer itself has the selected pixel ratio. Fit that
++         * unscaled content inside fullscreen/resized windows. */
+@@ -2458,5 +2456 @@
+-    g_windowed_width = g_aspect_index == 0
+-        ? border_content_width() * g_scale
+-        : round_to_int((double)g_windowed_height *
+-                       selected_aspect_ratio(border_content_width(),
+-                                             border_content_height()));
++    g_windowed_width = border_content_width() * g_scale;
+@@ -2583,0 +2578,2 @@
++    g_pref_widescreen = 0;
++    gb_ws_set_cli_request(0);
+diff --git a/runtime/include/gb_widescreen.h b/runtime/include/gb_widescreen.h
+--- a/runtime/include/gb_widescreen.h
++++ b/runtime/include/gb_widescreen.h
+@@ -10,2 +10,3 @@
+- * width request comes from GBCRECOMP_VIEW_WIDTH / --view-width. Arming only
+- * happens in the SDL platform path, never in differential/cosim runs.
++ * width request comes from the launcher aspect choice or
++ * GBCRECOMP_VIEW_WIDTH / --view-width. Arming only happens in the SDL platform
++ * path, never in differential/cosim runs.
+@@ -70 +71 @@ void gb_ws_invalidate_obj_context(void);
+-/* CLI request (parsed in generated main, before arming). 0 = none. */
++/* Width request supplied by the platform or CLI before arming. 0 = none. */
+diff --git a/runtime/src/ppu.c b/runtime/src/ppu.c
+index c115b45..2ebc448 100644
+--- a/runtime/src/ppu.c
++++ b/runtime/src/ppu.c
+@@ -827,3 +827,3 @@
+-    if (ppu->ly == 0) {
+-        game_extended_view_update(ctx);
++    game_extended_view_update(ctx);
++    if (ppu->ly == 0) {
+         memcpy(ppu->ws_margin_bg_palette_ram, ppu->bg_palette_ram,
+                sizeof(ppu->ws_margin_bg_palette_ram));

@@ -18,6 +18,7 @@
 #define POKANTO_TEXT_FULLSCREEN "Fullscreen"
 #define POKANTO_TEXT_LINEAR_FILTER "Linear filtering"
 #define POKANTO_TEXT_SCREEN_MODEL "Screen model"
+#define POKANTO_TEXT_ASPECT_RATIO "Aspect Ratio"
 #define POKANTO_TEXT_KEYBOARD "Keyboard"
 #define POKANTO_TEXT_KEYBOARD_MOUSE "Keyboard + Mouse"
 #define POKANTO_TEXT_NONE "None"

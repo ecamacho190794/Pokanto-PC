@@ -19,3 +19,14 @@ int game_handle_dev_hotkey(struct GBContext *ctx, GBDevHotkey hotkey) {
 }
 
 const char *game_get_name(void) { return "Pokémon Edición Roja"; }
+
+#define POKERED_W_IS_IN_BATTLE 0xD05C
+#define POKERED_CURRENT_MAP 0xD363
+#define POKERED_MAP_VIEW_POINTER 0xD364
+#define POKERED_Y_BLOCK_COORD 0xD368
+#define POKERED_X_BLOCK_COORD 0xD369
+#define POKERED_MAP_HEIGHT 0xD36D
+#define POKERED_MAP_WIDTH 0xD36E
+#define POKERED_TILESET_BANK 0xD530
+#define POKERED_TILESET_BLOCKS_POINTER 0xD531
+#include "../pokemon_extended_view.h"

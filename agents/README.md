@@ -16,6 +16,10 @@ diagnosticar un fallo, lee este archivo y luego las notas específicas pertinent
   desarrollo sin duplicar la lógica entre idiomas.
 - `incidents/dev-tools-runtime-controls.md`: configuración de Caramelo Raro,
   eliminación del menú de ajustes durante el juego y controles fijos de teclado.
+- `incidents/launcher-aspect-ratio-options.md`: opciones de relación de aspecto
+  del launcher, generación de tiles laterales del overworld sincronizada por
+  scanline, límite de ancho del PPU y comportamiento del viewport con escala de
+  ventana y pantalla completa.
 - `platform-builds.md`: requisitos, comandos y diferencias entre macOS, Linux y
   Windows. Actualízalo cuando cambien dependencias, herramientas o instrucciones
   de compilación.

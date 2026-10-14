@@ -18,6 +18,7 @@
 #define POKANTO_TEXT_FULLSCREEN "Pantalla completa"
 #define POKANTO_TEXT_LINEAR_FILTER "Filtro lineal"
 #define POKANTO_TEXT_SCREEN_MODEL "Modelo de pantalla"
+#define POKANTO_TEXT_ASPECT_RATIO "Relación de aspecto"
 #define POKANTO_TEXT_KEYBOARD "Teclado"
 #define POKANTO_TEXT_KEYBOARD_MOUSE "Teclado + ratón"
 #define POKANTO_TEXT_NONE "Ninguno"

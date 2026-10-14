@@ -1,20 +1,11 @@
 diff --git a/src/common/backends/imgui/launcher_imgui.cpp b/src/common/backends/imgui/launcher_imgui.cpp
-index b5c2a8a..5f47751 100644
+index b5c2a8a..89084ac 100644
 --- a/src/common/backends/imgui/launcher_imgui.cpp
 +++ b/src/common/backends/imgui/launcher_imgui.cpp
-@@ -22,6 +22,8 @@
- #include "consoles/n64/n64_binds.h"   // RUI_N64_FIELD_* for the pad-capture path
- 
- #include "launcher_sdlcompat.h"   // pulls the right SDL header + event shim
+@@ -24,0 +25,2 @@
 +#include "launcher_strings.h"    // selected by the host's language build
 +#include "launcher_strings.h"    // selected by the host's language build
- 
- #include "imgui.h"
- #if defined(LNG_SDL3)
-@@ -675,7 +677,13 @@ void draw_verdict_block(const LauncherModel* m, const LauncherTheme& th, float a
- 
- void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = false) {
-     if (!begin_panel("game", 0, fill_h)) { end_panel(); return; }
+@@ -678 +680,7 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
 -    // No "GAME" eyebrow: the box art itself tells the user this is the game.
 +    // The fixed-ROM builds use a compact, text-only ROM summary.
 +#if defined(GBRECOMP_POKANTO_FIXED_ROM)
@@ -23,51 +14,26 @@ index b5c2a8a..5f47751 100644
 +#else
 +    const bool show_boxart = true;
 +#endif
-     const float availw = ImGui::GetContentRegionAvail().x;
- 
-     // Verify module: verify.mode==1 systems (PSX) render a disc-verdict block
-@@ -686,10 +694,10 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
-     // Box art on top (centered), everything else BELOW it. Height is derived
-     // from the space actually left after the metadata + button, so the art is
-     // as large as it can be WITHOUT pushing the last row out of the card.
+@@ -689 +697 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
 -    {
 +    if (show_boxart) {
-         // Reserve space for everything under the art: verified line + 2 meta rows
-         // + Change ROM, plus the SAVES block when this game has battery SRAM.
+@@ -692 +700 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
 -        float reserve = px(198.0f);
 +        float reserve = px(m->rom_selection_locked ? 152.0f : 198.0f);
-         if (disc_verdict) reserve += px(96.0f);           // taller: icon+headline + 3-row checklist
-         if (m->saves_supported) reserve += px(96.0f);    // compact SAVES row below Change ROM
-         if (m->password_save_path) reserve += px(96.0f); // password-save row (same footprint)
-@@ -699,8 +707,10 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
-         if (art_h > px(368.0f)) art_h = px(368.0f);   // allow a larger hero box art (~15% bigger than before)
-         if (art_h < px(248.0f)) art_h = px(248.0f);   // keep it big enough to balance the side column
-         hero_boxart_centered(g_boxart, art_h, availw);
+@@ -701,0 +710,2 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
 +    } else {
 +        ImGui::Dummy(ImVec2(0, px(4)));
-     }
+@@ -703 +713 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
 -    ImGui::Dummy(ImVec2(0, px(10)));
 +    ImGui::Dummy(ImVec2(0, show_boxart ? px(10) : px(2)));
- 
-     // Region + verification state, centered under the art.
-     const char* noun = (m->rom_noun && m->rom_noun[0]) ? m->rom_noun : "ROM";
-@@ -709,9 +719,9 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
-     } else {
-         const bool verified = launcher_model_rom_verified(m);
-         char line[64];
+@@ -712,3 +722,3 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
 -        if (!m->rom_present)   snprintf(line, sizeof(line), "No %s loaded", noun);
 -        else if (verified)     snprintf(line, sizeof(line), "%s verified", noun);
 -        else                   snprintf(line, sizeof(line), "%s not recognized", noun);
 +        if (!m->rom_present)   snprintf(line, sizeof(line), POKANTO_TEXT_ROM_MISSING_STATUS, noun);
 +        else if (verified)     snprintf(line, sizeof(line), POKANTO_TEXT_ROM_VALID, noun);
 +        else                   snprintf(line, sizeof(line), POKANTO_TEXT_ROM_INVALID, noun);
-         float w = ImGui::GetTextLineHeight() + px(6) + ImGui::CalcTextSize(line).x;
-         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availw - w) * 0.5f);
-         state_mark(verified, th);
-@@ -731,10 +741,15 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
-         // one — an empty value would render a bare "Region" label with nothing
-         // beside it, which reads as a bug.
-         if (!disc_verdict && m->region[0])
+@@ -734,2 +744,6 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
 -            kv_row("Region", m->region, th, false, false);
 -        kv_row("File",   m->rom_file, th, false, false);
 +            kv_row(
@@ -76,90 +42,42 @@ index b5c2a8a..5f47751 100644
 +        kv_row(
 +               POKANTO_TEXT_FILE,
 +               m->rom_file, th, false, false);
-         ImGui::EndTable();
-     }
+@@ -737,0 +752 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
 +    if (!m->rom_selection_locked) {
-     ImGui::Dummy(ImVec2(0, px(12)));
-     char change_label[32];
-     snprintf(change_label, sizeof(change_label), "Change %s", noun);
-@@ -755,6 +770,7 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
-             picked = launcher_pick_rom(g_pick_buf, sizeof(g_pick_buf));
-         if (picked) launcher_model_set_rom(m, g_pick_buf);
-     }
+@@ -757,0 +773 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
 +    }
- 
-     // MSU-1 patch-available sub-block: this game ships an IPS patch that
-     // converts the verified vanilla ROM into its MSU-1 streamed-audio variant.
-@@ -1371,17 +1387,17 @@ void pad_mode_selector(LauncherModel* m, const LauncherTheme& th, int p, float w
- // (off); otherwise it is the single legacy "Keyboard" entry, byte-for-byte
- // identical to before for every non-mouse game.
- void draw_source_selectables(LauncherModel* m, int p) {
+@@ -1374 +1390 @@ void draw_source_selectables(LauncherModel* m, int p) {
 -    if (ImGui::Selectable("None", m->s.player_src[p] == 0))
 +    if (ImGui::Selectable(POKANTO_TEXT_NONE, m->s.player_src[p] == 0))
-         launcher_model_set_source(m, p, 0, 0, nullptr);
-     if (m->has_mouse_controls && p == 0) {
-         const bool kbm = m->s.player_src[p] == 1 && m->s.mouse_enabled;
-         const bool kb  = m->s.player_src[p] == 1 && !m->s.mouse_enabled;
+@@ -1379 +1395 @@ void draw_source_selectables(LauncherModel* m, int p) {
 -        if (ImGui::Selectable("Keyboard + Mouse", kbm))
 +        if (ImGui::Selectable(POKANTO_TEXT_KEYBOARD_MOUSE, kbm))
-             launcher_model_set_mouse_source(m, 1);
+@@ -1381 +1397 @@ void draw_source_selectables(LauncherModel* m, int p) {
 -        if (ImGui::Selectable("Keyboard", kb))
 +        if (ImGui::Selectable(POKANTO_TEXT_KEYBOARD, kb))
-             launcher_model_set_mouse_source(m, 0);
-     } else {
+@@ -1384 +1400 @@ void draw_source_selectables(LauncherModel* m, int p) {
 -        if (ImGui::Selectable("Keyboard", m->s.player_src[p] == 1))
 +        if (ImGui::Selectable(POKANTO_TEXT_KEYBOARD, m->s.player_src[p] == 1))
-             launcher_model_set_source(m, p, 1, 0, nullptr);
-     }
-     for (int i = 0; i < g_pad_count; ++i) {
-@@ -1391,7 +1407,7 @@ void draw_source_selectables(LauncherModel* m, int p) {
-     }
-     if (g_pad_count == 0) {
-         ImGui::BeginDisabled();
+@@ -1394 +1410 @@ void draw_source_selectables(LauncherModel* m, int p) {
 -        ImGui::Selectable("(no gamepad connected)");
 +        ImGui::Selectable(POKANTO_TEXT_NO_GAMEPAD);
-         ImGui::EndDisabled();
-     }
- }
-@@ -1436,7 +1452,10 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
-     }
- 
-     ImGui::SetNextItemWidth(cw);
+@@ -1439 +1455,4 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
 -    if (ImGui::BeginCombo("##src", launcher_model_player_src_label(m, p))) {
 +    const char* source_label = launcher_model_player_src_label(m, p);
 +    if (m->rom_selection_locked && m->s.player_src[p] == 1)
 +        source_label = POKANTO_TEXT_KEYBOARD;
 +    if (ImGui::BeginCombo("##src", source_label)) {
-         draw_source_selectables(m, p);
-         ImGui::EndCombo();
-     }
-@@ -1449,10 +1468,11 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
-         const float gap  = px(th.spacing_sm);
-         const float half = (cw - gap) * 0.5f;
-         const float btnh = px(32);
+@@ -1452 +1471,2 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
 -        if (ImGui::Button("Configure", ImVec2(half, btnh))) launcher_model_open_config(m, p);
 +        const char* configure_label = POKANTO_TEXT_CONFIGURE;
 +        if (ImGui::Button(configure_label, ImVec2(half, btnh))) launcher_model_open_config(m, p);
-         ImGui::SameLine(0, gap);
-         const bool on = m->s.player_src[p] != 0;
+@@ -1455 +1475 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
 -        const char* st = on ? "connected" : "not assigned";
 +        const char* st = on ? POKANTO_TEXT_CONNECTED : POKANTO_TEXT_UNASSIGNED;
-         const float sw = px(10) + px(8) + ImGui::CalcTextSize(st).x;
-         // center the dot+label within the right half, vertically on the button
-         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (half - sw) * 0.5f);
-@@ -1494,6 +1514,8 @@ void panel_controller_draw(LauncherModel* m, const LauncherTheme* th) {
-     draw_controllers_row(m, *th);
- }
- 
+@@ -1496,0 +1517,2 @@ void panel_controller_draw(LauncherModel* m, const LauncherTheme* th) {
 +void panel_video_draw(LauncherModel* m, const LauncherTheme* th);
 +
- // The dashboard COMPOSES whichever panels this game's SystemProfile lists in
- // panels_dashboard — it does not hardcode a fixed set. GAME is always
- // present; the side column stacks CONTROLLERS plus any optional modules
-@@ -1507,6 +1529,31 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
-     const LauncherPanel* save_p = find_composed(prof->panels_dashboard, "save", m);
-     const LauncherPanel* tpak_p = find_composed(prof->panels_dashboard, "tpak", m);
- 
+@@ -1509,0 +1532,25 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
 +#if defined(GBRECOMP_POKANTO_FIXED_ROM)
 +    if (m->rom_selection_locked) {
 +        const float gap = px(th.spacing_md);
@@ -185,13 +103,7 @@ index b5c2a8a..5f47751 100644
 +    }
 +#endif
 +
-     if (logical_w >= 820) {
-         const float gap = px(th.spacing_md);
-         // When a WIDE panel (save/tpak) follows this row, the columns must hug
-@@ -1645,8 +1692,39 @@ static void experimental_tag(const LauncherTheme& th) {
-     ImGui::TextColored(col(th.warn), "EXPERIMENTAL");
- }
- 
+@@ -1647,0 +1695,31 @@ static void experimental_tag(const LauncherTheme& th) {
 +static bool spanish_fixed_rom_ui(const LauncherModel* m) {
 +#if defined(GBRECOMP_POKANTO_FIXED_ROM)
 +    return m->rom_selection_locked;
@@ -223,156 +135,155 @@ index b5c2a8a..5f47751 100644
 +    return labels[index];
 +}
 +
- void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
+@@ -1649 +1727 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
 -    eyebrow("DISPLAY");
 +    eyebrow(POKANTO_TEXT_DISPLAY);
- 
-     if (!any_deep_display(m)) {
-         // ---- legacy minimal surface (SNES/NES etc.) — aligned label grid -------
-@@ -1654,21 +1732,21 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
-         { float t = ImGui::CalcTextSize("View mode").x; if (t > cw) cw = t; }
-         if (m->has_integer_scale) { float t = ImGui::CalcTextSize("Integer scaling").x; if (t > cw) cw = t; }
-         cw += px(18.0f);
+@@ -1654 +1732,4 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
+-        { float t = ImGui::CalcTextSize("View mode").x; if (t > cw) cw = t; }
++        const char* view_label = m->num_aspect_labels > 0
++            ? POKANTO_TEXT_ASPECT_RATIO
++            : "View mode";
++        { float t = ImGui::CalcTextSize(view_label).x; if (t > cw) cw = t; }
+@@ -1657 +1738 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
 -        row_label("Window scale", th, cw);
 +        row_label(POKANTO_TEXT_WINDOW_SCALE, th, cw);
-         if (ImGui::Button(launcher_model_scale_label(m), ImVec2(px(120), px(30))))
-             launcher_model_cycle_scale(m);
-         // Universal fullscreen row (every console; tri-state cycle restoring
-         // the legacy launcher's Off/Borderless/Exclusive vocabulary). Sits
-         // right under Window scale, matching the old Display panel order.
+@@ -1663,2 +1744,2 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
 -        row_label("Fullscreen", th, cw);
 -        if (ImGui::Button(launcher_model_fullscreen_label(m), ImVec2(px(120), px(30))))
 +        row_label(POKANTO_TEXT_FULLSCREEN, th, cw);
 +        if (ImGui::Button(display_fullscreen_label(m), ImVec2(px(140), px(30))))
-             launcher_model_cycle_fullscreen(m);
-         if (m->has_integer_scale) {   // NES module: snap the image to integer multiples
-             row_label("Integer scaling", th, cw);
-             bool is = m->s.integer_scale != 0;
-             if (ImGui::Checkbox("##intscale", &is)) launcher_model_toggle_integer_scale(m);
-         }
+@@ -1671 +1752 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
 -        row_label("Linear filtering", th, cw);
 +        row_label(POKANTO_TEXT_LINEAR_FILTER, th, cw);
-         bool filter = m->s.linear_filter != 0;
-         if (ImGui::Checkbox("##filter", &filter)) launcher_model_toggle_filter(m);
-         if (m->aspect_mask || m->num_aspect_labels > 0 ||
-@@ -1723,7 +1801,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
-         if (ImGui::Button(launcher_model_window_size_label(m), ImVec2(px(150), px(30))))
-             launcher_model_cycle_window_size(m);
-     } else {
+@@ -1676 +1757 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
+-            row_label("View mode", th, cw);
++            row_label(view_label, th, cw);
+@@ -1726 +1807 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
 -        row_label("Window scale", th);
 +        row_label(POKANTO_TEXT_WINDOW_SCALE, th);
-         if (ImGui::Button(launcher_model_scale_label(m), ImVec2(px(120), px(30))))
-             launcher_model_cycle_scale(m);
-     }
-@@ -1752,8 +1830,8 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
-     // Universal fullscreen row (every console — no longer gated on the
-     // vestigial has_fullscreen_toggle). Tri-state cycle replaces the old
-     // binary checkbox so Exclusive mode is reachable again.
+@@ -1755,2 +1836,2 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
 -    row_label("Fullscreen", th);
 -    if (ImGui::Button(launcher_model_fullscreen_label(m), ImVec2(px(120), px(30))))
 +    row_label(POKANTO_TEXT_FULLSCREEN, th);
 +    if (ImGui::Button(display_fullscreen_label(m), ImVec2(px(140), px(30))))
-         launcher_model_cycle_fullscreen(m);
- 
-     if (m->aspect_mask || m->num_aspect_labels > 0 ||
-@@ -1770,7 +1848,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
-         if (ImGui::Button(launcher_model_texture_filter_label(m), ImVec2(px(120), px(30))))
-             launcher_model_toggle_texture_filter(m);
-     } else {
+@@ -1761 +1842 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
+-        row_label("View mode", th);
++        row_label(m->num_aspect_labels > 0 ? POKANTO_TEXT_ASPECT_RATIO : "View mode", th);
+@@ -1773 +1854 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
 -        row_label("Linear filtering", th);
 +        row_label(POKANTO_TEXT_LINEAR_FILTER, th);
-         bool filter = m->s.linear_filter != 0;
-         if (ImGui::Checkbox("##filter", &filter)) launcher_model_toggle_filter(m);
-     }
-@@ -1782,10 +1860,11 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
-     }
- 
-     if (m->has_screen_kind) {
+@@ -1785 +1866,2 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
 -        row_label("Screen model", th);
 +        row_label(POKANTO_TEXT_SCREEN_MODEL, th);
 +        if (spanish_fixed_rom_ui(m)) ImGui::NewLine();
-         // Wide enough for the longest label ("Super Game Boy (No Border)");
-         // shorter models (e.g. "DMG") center within the same fixed box.
+@@ -1788 +1870 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
 -        if (ImGui::Button(launcher_model_screen_kind_label(m), ImVec2(px(220), px(30))))
 +        if (ImGui::Button(display_screen_kind_label(m), ImVec2(px(245), px(30))))
-             launcher_model_cycle_screen_kind(m);
-     }
- 
-@@ -3454,7 +3533,7 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
-     if (m->view == LNG_VIEW_DASHBOARD) {
-         bool skip = m->s.skip_launcher != 0;
-         ImGui::SetCursorScreenPos(ImVec2(origin.x, cta_y + (play_h - ImGui::GetFrameHeight()) * 0.5f));
+@@ -3457 +3539 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
 -        if (ImGui::Checkbox("Skip launcher on boot", &skip))
 +        if (ImGui::Checkbox(POKANTO_TEXT_SKIP_LAUNCHER, &skip))
-             launcher_model_request_skip_toggle(m);
-     }
-     if (m->view == LNG_VIEW_NETPLAY) {
-@@ -3521,7 +3600,7 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
-         }
-     }
-     ImGui::SetCursorScreenPos(ImVec2(play_x, cta_y));
+@@ -3524 +3606 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
 -    if (neon_cta("##play", "PLAY", ImVec2(play_w, play_h)))
 +    if (neon_cta("##play", POKANTO_TEXT_PLAY, ImVec2(play_w, play_h)))
-         m->action = LNG_ACTION_LAUNCH;
-     ImGui::SetItemDefaultFocus();   // gamepad/keyboard start on the primary action
-     (void)win;
-@@ -3615,7 +3694,10 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
-         }
-     ImGui::EndGroup();
-     {   // right-aligned netplay name + nav buttons
+@@ -3618 +3700,4 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
 -        const char* label = (m->view == LNG_VIEW_DASHBOARD) ? "Settings" : "< Back";
 +#if defined(GBRECOMP_POKANTO_FIXED_ROM)
 +        if (!m->rom_selection_locked) {
 +#endif
 +        const char* label = (m->view == LNG_VIEW_DASHBOARD) ? POKANTO_TEXT_SETTINGS : POKANTO_TEXT_BACK;
-         const float w = px(110.0f);
-         const float name_w = px(170.0f);
-         float right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
-@@ -3634,6 +3716,9 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
-             launcher_model_set_view(m, m->view == LNG_VIEW_DASHBOARD
-                                         ? LNG_VIEW_SETTINGS : LNG_VIEW_DASHBOARD);
-         }
+@@ -3636,0 +3722,3 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
 +#if defined(GBRECOMP_POKANTO_FIXED_ROM)
 +        }
 +#endif
-     }
-     // marquee underline: neon gradient rule under the header
-     ImGui::Dummy(ImVec2(0, px(8.0f)));
 diff --git a/src/common/launcher_model.c b/src/common/launcher_model.c
 index 333dac0..c58b9d1 100644
 --- a/src/common/launcher_model.c
 +++ b/src/common/launcher_model.c
-@@ -118,6 +118,7 @@ void launcher_model_init(LauncherModel* m,
-         m->has_bios             = game->has_bios != 0;
-         m->has_deadzone_pct     = game->has_deadzone_pct != 0;
-         m->rom_noun             = game->rom_noun ? game->rom_noun : "ROM";
+@@ -120,0 +121 @@ void launcher_model_init(LauncherModel* m,
 +        m->rom_selection_locked = game->rom_selection_locked != 0;
-         m->language_labels      = game->language_labels;
-         m->num_languages        = game->num_languages;
-         m->disc_verify_cb       = game->disc_verify;      // real disc verdict (PSX), or NULL
 diff --git a/src/common/launcher_model.h b/src/common/launcher_model.h
 index 4c8010c..ac03e03 100644
 --- a/src/common/launcher_model.h
 +++ b/src/common/launcher_model.h
-@@ -256,6 +256,7 @@ typedef struct {
-     const struct SystemProfile* profile;
- 
-     bool     rom_present;
+@@ -258,0 +259 @@ typedef struct {
 +    bool     rom_selection_locked;
-     char     rom_full[512];          // absolute path (what we hand to the game)
-     char     rom_file[128];          // basename for display, e.g. "mmx.sfc"
-     char     rom_size[48];           // "1.50 MB"
+diff --git a/src/consoles/gb/gb_profile.h b/src/consoles/gb/gb_profile.h
+index 0f85075..738eaf9 100644
+--- a/src/consoles/gb/gb_profile.h
++++ b/src/consoles/gb/gb_profile.h
+@@ -67,0 +68,3 @@ static const char* const kGbScreenKindNames[] = {
++static const char* const kGbAspectLabels[] = {
++    "Original", "4:3", "16:9", "16:10", "21:9"
++};
+@@ -160,0 +164,3 @@ static inline void launcher_profile_apply_gb_common(RecompLauncherCGameInfo* gi)
++    gi->aspect_labels = kGbAspectLabels;
++    gi->num_aspect_labels =
++        (int)(sizeof(kGbAspectLabels) / sizeof(kGbAspectLabels[0]));
 diff --git a/src/recomp_launcher.h b/src/recomp_launcher.h
 index e8a350d..eafd9d7 100644
 --- a/src/recomp_launcher.h
 +++ b/src/recomp_launcher.h
-@@ -462,6 +462,9 @@ typedef struct RecompLauncherCGameInfo {
-      * LAN room header (NULL/empty => online Lobby Server URL). */
-     int resume_netplay_room;
-     const char* resume_netplay_endpoint;
+@@ -464,0 +465,3 @@ typedef struct RecompLauncherCGameInfo {
 +    /* Host selected and verified the ROM before opening the launcher. When
 +     * set, hide the ROM picker so the launched file cannot be changed here. */
 +    int rom_selection_locked;
- } RecompLauncherCGameInfo;
- 
- // Returns: 0 = LAUNCH (boot out_rom_path with the edited *io),
+diff --git a/src/common/launcher_strings.h b/src/common/launcher_strings.h
+new file mode 100644
+index 0000000..b6c7114
+--- /dev/null
++++ b/src/common/launcher_strings.h
+@@ -0,0 +1,2 @@
++/* Default catalog for hosts that consume recomp-ui without a language pack. */
++#include "../launcher_strings_default.h"
+diff --git a/src/launcher_strings_default.h b/src/launcher_strings_default.h
+new file mode 100644
+index 0000000..aa34bed
+--- /dev/null
++++ b/src/launcher_strings_default.h
+@@ -0,0 +1,40 @@
++#ifndef RECOMP_UI_LAUNCHER_STRINGS_DEFAULT_H
++#define RECOMP_UI_LAUNCHER_STRINGS_DEFAULT_H
++#define POKANTO_TEXT_LAUNCHER_TITLE "Launcher"
++#define POKANTO_TEXT_ROM "ROM"
++#define POKANTO_TEXT_ROM_MISSING "No valid ROM was found beside the game.\n\nThe game will close."
++#define POKANTO_TEXT_ROM_MISSING_TITLE "ROM not found"
++#define POKANTO_TEXT_ROM_MISSING_LOG "No valid ROM found beside executable"
++#define POKANTO_TEXT_ROM_MISSING_STATUS "No %s loaded"
++#define POKANTO_TEXT_ROM_VALID "%s valid"
++#define POKANTO_TEXT_ROM_INVALID "%s not recognized"
++#define POKANTO_TEXT_REGION "Region"
++#define POKANTO_TEXT_FILE "File"
++#define POKANTO_TEXT_DISPLAY "DISPLAY"
++#define POKANTO_TEXT_WINDOW_SCALE "Window scale"
++#define POKANTO_TEXT_FULLSCREEN "Fullscreen"
++#define POKANTO_TEXT_LINEAR_FILTER "Linear filtering"
++#define POKANTO_TEXT_SCREEN_MODEL "Screen model"
++#define POKANTO_TEXT_ASPECT_RATIO "Aspect Ratio"
++#define POKANTO_TEXT_KEYBOARD "Keyboard"
++#define POKANTO_TEXT_KEYBOARD_MOUSE "Keyboard + Mouse"
++#define POKANTO_TEXT_NONE "None"
++#define POKANTO_TEXT_NO_GAMEPAD "(no gamepad connected)"
++#define POKANTO_TEXT_CONFIGURE "Configure"
++#define POKANTO_TEXT_CONNECTED "Connected"
++#define POKANTO_TEXT_UNASSIGNED "Unassigned"
++#define POKANTO_TEXT_PLAY "PLAY"
++#define POKANTO_TEXT_SKIP_LAUNCHER "Skip launcher on boot"
++#define POKANTO_TEXT_SETTINGS "Settings"
++#define POKANTO_TEXT_BACK "< Back"
++#define POKANTO_TEXT_FULLSCREEN_OFF "Off"
++#define POKANTO_TEXT_FULLSCREEN_BORDERLESS "Borderless"
++#define POKANTO_TEXT_FULLSCREEN_EXCLUSIVE "Exclusive"
++#define POKANTO_TEXT_SCREEN_DMG "DMG"
++#define POKANTO_TEXT_SCREEN_POCKET "Game Boy Pocket"
++#define POKANTO_TEXT_SCREEN_LIGHT "Game Boy Light"
++#define POKANTO_TEXT_SCREEN_MONO "Black and white"
++#define POKANTO_TEXT_SCREEN_AMBER "Amber (phosphor)"
++#define POKANTO_TEXT_SCREEN_SGB "Super Game Boy"
++#define POKANTO_TEXT_SCREEN_SGB_NO_BORDER "Super Game Boy (no border)"
++#endif
+diff --git a/src/recomp_launcher.h b/src/recomp_launcher.h
+--- a/src/recomp_launcher.h
++++ b/src/recomp_launcher.h
+@@ -157 +157 @@
+-    int  aspect_index;      // 0 = 4:3, 1 = 16:9, 2 = 21:9
++    int  aspect_index;      // selection index; vocabulary depends on GameInfo.aspect_labels
