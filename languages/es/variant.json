@@ -1,0 +1,14 @@
+{
+  "id": "es",
+  "display_name": "Español",
+  "launcher_catalog": "launcher_strings.h",
+  "build_entry": "build.sh",
+  "rom_input": "roms/Pokemon Edicion Roja.gb",
+  "accepted_rom_crc32": ["D8507D8A"],
+  "source_repository": "third_party/pokered-es",
+  "recompiler_config": "../../spanish/pokemon_red_es.toml",
+  "game_build_hooks": "../../spanish/game_build.cmake",
+  "game_extras": "../../spanish/extras.c",
+  "source_patch": "../../patches/pokered-es-start-menu.patch",
+  "source_patch_output": "Pokemon_Edicion_Roja.bps"
+}

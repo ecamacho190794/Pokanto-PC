@@ -1,0 +1,621 @@
+diff --git a/runtime/CMakeLists.txt b/runtime/CMakeLists.txt
+index d4268de..70c1f8c 100644
+--- a/runtime/CMakeLists.txt
++++ b/runtime/CMakeLists.txt
+@@ -24,6 +24,7 @@ add_library(gbrt STATIC
+     src/game_defaults/game_default_dispatch_override.c
+     src/game_defaults/game_default_get_name.c
+     src/game_defaults/game_default_get_platform.c
++    src/game_defaults/game_default_get_region.c
+     src/game_defaults/game_default_handle_arg.c
+     src/game_defaults/game_default_get_expected_crc32.c
+     src/game_defaults/game_default_get_valid_crcs.c
+@@ -104,10 +105,12 @@ if(SDL2_FOUND)
+     # imgui_impl_opengl3 is dialect-selected at compile time. Force the
+     # GLES 2.0 path so one binary covers desktop Mesa, Mali, Adreno,
+     # everything we care about.
+-    set_source_files_properties(
+-        vendor/imgui/backends/imgui_impl_opengl3.cpp
+-        PROPERTIES COMPILE_DEFINITIONS "IMGUI_IMPL_OPENGL_ES2"
+-    )
++    if(NOT APPLE)
++        set_source_files_properties(
++            vendor/imgui/backends/imgui_impl_opengl3.cpp
++            PROPERTIES COMPILE_DEFINITIONS "IMGUI_IMPL_OPENGL_ES2"
++        )
++    endif()
+     target_include_directories(gbrt PUBLIC
+         ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui
+     )
+@@ -197,7 +200,10 @@ if(GBRECOMP_RECOMP_UI AND SDL2_FOUND AND EXISTS "${RECOMP_UI_ROOT}/src/recomp_la
+     # LNG_GLES2: the shared ImGui opengl3 backend is compiled for GLES 2 (ANGLE),
+     # so the launcher must create a matching GLES context (not desktop GL core).
+     target_compile_definitions(gbrt PRIVATE
+-        RECOMP_LAUNCHER SDL_MAIN_HANDLED RECOMP_UI_HOST_STB_WRITE LNG_GLES2)
++        RECOMP_LAUNCHER SDL_MAIN_HANDLED RECOMP_UI_HOST_STB_WRITE)
++    if(NOT APPLE)
++        target_compile_definitions(gbrt PRIVATE LNG_GLES2)
++    endif()
+     message(STATUS "recomp-ui launcher: ON (${RECOMP_UI_ROOT})")
+ elseif(GBRECOMP_RECOMP_UI)
+     message(STATUS "recomp-ui launcher: OFF (not found at ${RECOMP_UI_ROOT} or no SDL2)")
+diff --git a/runtime/include/game_extras.h b/runtime/include/game_extras.h
+index ed247f4..452e622 100644
+--- a/runtime/include/game_extras.h
++++ b/runtime/include/game_extras.h
+@@ -98,6 +98,10 @@ const char *game_get_name(void);
+  * Mario Land) override this to "gb" in their extras.c. */
+ const char *game_get_platform(void);
+ 
++/* Return a short region label for the launcher (for example "USA / Europe"
++ * or "España"). Default: "USA". */
++const char *game_get_region(void);
++
+ /* Handle a CLI argument. Return 1 if consumed, 0 to ignore. */
+ int game_handle_arg(const char *arg, const char *next_arg);
+ 
+diff --git a/runtime/include/launcher.h b/runtime/include/launcher.h
+index f025bd3..3fe24b9 100644
+--- a/runtime/include/launcher.h
++++ b/runtime/include/launcher.h
+@@ -1,5 +1,8 @@
+ #pragma once
+ 
++#include <stddef.h>
++#include <stdint.h>
++
+ /**
+  * launcher.h — ROM discovery, identity verification, and external-ROM loading.
+  *
+@@ -52,6 +55,17 @@ void launcher_set_patch_file(const char *filename);
+  */
+ const char *launcher_get_rom_path(void);
+ 
++/**
++ * Find the first lexicographically named file with `extension` in `directory`
++ * whose CRC matches the game's accepted CRC list. Returns 1 and writes the
++ * full path to out_path when found; otherwise returns 0. This does not show a
++ * picker or alter rom.cfg, so hosts can enforce a fixed-ROM launch policy.
++ */
++int launcher_find_valid_rom_in_directory(const char *directory,
++                                         const char *extension,
++                                         char *out_path,
++                                         size_t out_path_size);
++
+ /**
+  * Load a ROM file into a malloc'd buffer.
+  * Caller must free the returned buffer.
+diff --git a/runtime/include/launcher_ui_seam.h b/runtime/include/launcher_ui_seam.h
+index 7709204..4923103 100644
+--- a/runtime/include/launcher_ui_seam.h
++++ b/runtime/include/launcher_ui_seam.h
+@@ -26,6 +26,7 @@ extern "C" {
+ #define GB_LAUNCHER_LAUNCH      0  /* user hit PLAY: settings+rom persisted, boot */
+ #define GB_LAUNCHER_QUIT        1  /* user closed the launcher: the caller exits */
+ #define GB_LAUNCHER_UNAVAILABLE 2  /* launcher could not initialize: fall back */
++#define GB_LAUNCHER_ERROR       3  /* required ROM missing/invalid: show alert and exit */
+ 
+ /* Show the pre-boot launcher. See the file comment. Returns one of the codes
+  * above. Safe to call once, before SDL is initialized (it self-manages SDL). */
+diff --git a/runtime/src/launcher.c b/runtime/src/launcher.c
+index 5fb092f..2a57679 100644
+--- a/runtime/src/launcher.c
++++ b/runtime/src/launcher.c
+@@ -12,6 +12,13 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#ifndef _WIN32
++#include <dirent.h>
++#include <strings.h>
++#endif
++#ifdef GB_HAS_SDL2
++#include <SDL.h>
++#endif
+ 
+ #ifdef _WIN32
+ #  define WIN32_LEAN_AND_MEAN
+@@ -77,6 +84,18 @@ void launcher_init(void) {
+     if (last_sep) *(last_sep + 1) = '\0';
+     snprintf(s_exe_dir, sizeof(s_exe_dir), "%s", exe_path);
+     snprintf(s_cfg_path, sizeof(s_cfg_path), "%srom.cfg", exe_path);
++#elif defined(GB_HAS_SDL2)
++    /* Keep rom.cfg beside the executable on Unix-like systems too. The
++     * pre-boot launcher uses SDL_GetBasePath() for this same location. */
++    char *base = SDL_GetBasePath();
++    if (base) {
++        snprintf(s_exe_dir, sizeof(s_exe_dir), "%s", base);
++        snprintf(s_cfg_path, sizeof(s_cfg_path), "%srom.cfg", base);
++        SDL_free(base);
++    } else {
++        s_exe_dir[0] = '\0';
++        strcpy(s_cfg_path, "rom.cfg");
++    }
+ #else
+     s_exe_dir[0] = '\0';  /* current dir */
+     strcpy(s_cfg_path, "rom.cfg");
+@@ -187,11 +206,44 @@ static int resolve_or_patch(const char *path, char *resolved, size_t resolved_sz
+     }
+     if (!s_patch_file[0]) { free(rom); return 0; }
+ 
++    char patch_filename[260];
++    snprintf(patch_filename, sizeof(patch_filename), "%s", s_patch_file);
++    int expected_patch_index = 0;
++#if defined(GBRECOMP_APPLY_ROM_PATCH)
++    int valid_count = 0;
++    const uint32_t *valid_crcs = game_get_valid_crcs(&valid_count);
++    uint32_t source_crc = crc32_compute(rom, (unsigned int)sz);
++    int source_index = -1;
++    for (int i = 0; valid_crcs && i < valid_count; i++) {
++        if (valid_crcs[i] == source_crc) {
++            source_index = i;
++            break;
++        }
++    }
++    if (source_index < 0) {
++        fprintf(stderr, "[Launcher] ROM CRC32 %08X is not enabled for this build.\n",
++                source_crc);
++        free(rom);
++        return 0;
++    }
++    expected_patch_index = source_index;
++    if (source_index > 0) {
++        const char *extension = strrchr(s_patch_file, '.');
++        size_t stem_len = extension ? (size_t)(extension - s_patch_file) : strlen(s_patch_file);
++        snprintf(patch_filename, sizeof(patch_filename), "%.*s-%08X%s",
++                 (int)stem_len, s_patch_file, source_crc, extension ? extension : "");
++    }
++#endif
++
+     char patch_path[600];
+-    snprintf(patch_path, sizeof(patch_path), "%s%s", s_exe_dir, s_patch_file);
++    snprintf(patch_path, sizeof(patch_path), "%s%s", s_exe_dir, patch_filename);
+     long psz = 0;
+     unsigned char *patch = load_file(patch_path, &psz);
+-    if (!patch) { free(rom); return 0; }  /* no patch shipped → not patchable */
++    if (!patch) {
++        fprintf(stderr, "[Launcher] ROM patch not found: %s\n", patch_path);
++        free(rom);
++        return 0;
++    }
+ 
+     unsigned char *out = NULL; size_t out_len = 0; char err[160];
+     int rc = gb_bps_apply(patch, (size_t)psz, rom, (size_t)sz, &out, &out_len, err, sizeof(err));
+@@ -201,7 +253,8 @@ static int resolve_or_patch(const char *path, char *resolved, size_t resolved_sz
+         free(rom);
+         return 0;
+     }
+-    if (!buffer_sha_matches(out, out_len, s_expected_sha256)) {
++    if (expected_patch_index == 0 &&
++        !buffer_sha_matches(out, out_len, s_expected_sha256)) {
+         fprintf(stderr, "[Launcher] patched ROM does not match expected build\n");
+         free(out); free(rom);
+         return 0;
+@@ -238,6 +291,22 @@ static int verify_rom(const char *path, char *resolved, size_t resolved_sz) {
+     uint32_t expected_single = (valid_count == 0) ? game_get_expected_crc32() : 0;
+     int have_crc = (valid_count > 0 && valid_list) || expected_single != 0;
+ 
++#if defined(GBRECOMP_APPLY_ROM_PATCH)
++    /* This language's recompiled code was generated from a patched image,
++     * while the launcher identifies the user's stock dump by CRC. Apply the
++     * shipped BPS before the runtime reads ROM-backed game data. */
++    if (s_patch_file[0]) {
++        char patched[512];
++        if (resolve_or_patch(path, patched, sizeof(patched))) {
++            int changed = strcmp(patched, path) != 0;
++            snprintf(resolved, resolved_sz, "%s", patched);
++            return changed ? 2 : 1;
++        }
++        fprintf(stderr, "[Launcher] ROM patch is missing or did not match this build.\n");
++        return 0;
++    }
++#endif
++
+     /* No CRC policy → SHA-256 exact-match, with optional BPS auto-patch. CRC
+      * hooks take precedence (multi-revision carts keep their valid-list). */
+     if (!have_crc) {
+@@ -292,6 +361,99 @@ static int verify_rom(const char *path, char *resolved, size_t resolved_sz) {
+     return 0;
+ }
+ 
++static int extension_matches(const char *filename, const char *extension) {
++    if (!filename || !extension || !extension[0]) return 0;
++    const char *dot = strrchr(filename, '.');
++    if (!dot) return 0;
++#ifdef _WIN32
++    return _stricmp(dot, extension) == 0;
++#else
++    return strcasecmp(dot, extension) == 0;
++#endif
++}
++
++static int rom_matches_accepted_crc(const char *path) {
++    int valid_count = 0;
++    const uint32_t *valid_list = game_get_valid_crcs(&valid_count);
++    if (!valid_list || valid_count <= 0) return 0;
++
++    long size = 0;
++    unsigned char *data = load_file(path, &size);
++    if (!data || size <= 0 || (unsigned long)size > 0xFFFFFFFFul) {
++        free(data);
++        return 0;
++    }
++    unsigned int crc = crc32_compute(data, (unsigned int)size);
++    free(data);
++    for (int i = 0; i < valid_count; ++i)
++        if (crc == valid_list[i]) return 1;
++    return 0;
++}
++
++static int consider_rom_candidate(const char *directory, const char *filename,
++                                  const char *extension, char *best_name,
++                                  size_t best_name_size, char *out_path,
++                                  size_t out_path_size) {
++    if (!filename || !filename[0] || !extension_matches(filename, extension))
++        return 0;
++    if (best_name[0] && strcmp(filename, best_name) >= 0) return 0;
++
++    char candidate[2048];
++    size_t dir_len = strlen(directory);
++    int needs_sep = dir_len > 0 && directory[dir_len - 1] != '/' &&
++                    directory[dir_len - 1] != '\\';
++    int n = snprintf(candidate, sizeof(candidate), "%s%s%s", directory,
++                     needs_sep ? "/" : "", filename);
++    if (n < 0 || (size_t)n >= sizeof(candidate) ||
++        !rom_matches_accepted_crc(candidate)) return 0;
++
++    if (strlen(candidate) >= out_path_size ||
++        strlen(filename) >= best_name_size) return 0;
++    strcpy(best_name, filename);
++    strcpy(out_path, candidate);
++    return 1;
++}
++
++int launcher_find_valid_rom_in_directory(const char *directory,
++                                         const char *extension,
++                                         char *out_path,
++                                         size_t out_path_size) {
++    if (!directory || !directory[0] || !extension || !out_path ||
++        out_path_size == 0) return 0;
++    out_path[0] = '\0';
++    char best_name[512] = {0};
++
++#ifdef _WIN32
++    char pattern[2048];
++    size_t dir_len = strlen(directory);
++    int needs_sep = dir_len > 0 && directory[dir_len - 1] != '/' &&
++                    directory[dir_len - 1] != '\\';
++    int n = snprintf(pattern, sizeof(pattern), "%s%s*", directory,
++                     needs_sep ? "\\" : "");
++    if (n < 0 || (size_t)n >= sizeof(pattern)) return 0;
++    WIN32_FIND_DATAA entry;
++    HANDLE find = FindFirstFileA(pattern, &entry);
++    if (find == INVALID_HANDLE_VALUE) return 0;
++    do {
++        if (!(entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
++            consider_rom_candidate(directory, entry.cFileName, extension,
++                                   best_name, sizeof(best_name), out_path,
++                                   out_path_size);
++    } while (FindNextFileA(find, &entry));
++    FindClose(find);
++#else
++    DIR *dir = opendir(directory);
++    if (!dir) return 0;
++    struct dirent *entry;
++    while ((entry = readdir(dir)) != NULL)
++        consider_rom_candidate(directory, entry->d_name, extension,
++                               best_name, sizeof(best_name), out_path,
++                               out_path_size);
++    closedir(dir);
++#endif
++    return out_path[0] != '\0';
++}
++
+ const char *launcher_get_rom_path(void) {
+     if (s_rom_path[0]) return s_rom_path;
+ 
+diff --git a/runtime/src/launcher_ui_seam.c b/runtime/src/launcher_ui_seam.c
+index 62a3b83..92e77ff 100644
+--- a/runtime/src/launcher_ui_seam.c
++++ b/runtime/src/launcher_ui_seam.c
+@@ -6,9 +6,11 @@
+ 
+ #include "launcher_ui_seam.h"
+ #include "game_extras.h"
++#include "launcher.h"
+ 
+ #include "recomp_launcher.h"   // recomp-ui C ABI
+ #include "launcher_profile.h"  // launcher_profile_apply()
++#include "launcher_strings.h"  // language-selected launcher copy
+ 
+ #include <SDL.h>
+ #include <stdint.h>
+@@ -118,6 +120,18 @@ static void seam_write_rom_cfg(const char* path, const char* rom) {
+     fclose(f);
+ }
+ 
++#if defined(GBRECOMP_POKANTO_FIXED_ROM)
++static void seam_show_rom_error(void) {
++    const char* title = POKANTO_TEXT_ROM_MISSING_TITLE;
++    const char* message = POKANTO_TEXT_ROM_MISSING;
++    fprintf(stderr, "[Launcher] %s: %s\n", title, POKANTO_TEXT_ROM_MISSING_LOG);
++    if (SDL_Init(SDL_INIT_VIDEO) == 0) {
++        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, title, message, NULL);
++        SDL_Quit();
++    }
++}
++#endif
++
+ /* ── the seam ─────────────────────────────────────────────────────────────── */
+ 
+ int gb_launcher_preboot(void) {
+@@ -131,6 +145,20 @@ int gb_launcher_preboot(void) {
+     seam_join(prefs_path,  sizeof(prefs_path),  exe_dir, "runtime_prefs.ini");
+     seam_join(romcfg_path, sizeof(romcfg_path), exe_dir, "rom.cfg");
+ 
++#if defined(GBRECOMP_POKANTO_FIXED_ROM)
++    /* Keep the working defaults even when the launcher is skipped. */
++    seam_upsert_int(prefs_path, "audio.volume_percent", 100);
++    char automatic_rom[2048];
++    if (!launcher_find_valid_rom_in_directory(exe_dir, ".gb", automatic_rom,
++                                               sizeof(automatic_rom))) {
++        seam_show_rom_error();
++        return GB_LAUNCHER_ERROR;
++    }
++    /* Always refresh the cached path: a stale selection must never redirect
++     * this fixed Spanish build to a ROM in another directory. */
++    seam_write_rom_cfg(romcfg_path, automatic_rom);
++#endif
++
+     /* "Skip launcher on boot": honor the persisted flag unless forced. */
+     if (seam_read_int(prefs_path, "launcher.skip", 0) != 0 &&
+         !(SDL_getenv("GBRECOMP_LAUNCHER") && SDL_getenv("GBRECOMP_LAUNCHER")[0] == '1')) {
+@@ -154,8 +182,8 @@ int gb_launcher_preboot(void) {
+         ls.screen_kind = seam_read_int(prefs_path, "video.palette", 0);
+     }
+     ls.enable_audio  = 1;
+-    ls.audio_freq    = 32768;
+-    ls.volume        = seam_read_int(prefs_path, "audio.volume_percent", 100);
++    ls.audio_freq    = 44100;
++    ls.volume        = 100;
+     ls.widescreen    = seam_read_int(prefs_path, "video.widescreen", 0);
+     ls.player_src[0] = 1;   /* keyboard */
+     ls.skip_launcher = 0;
+@@ -166,7 +194,10 @@ int gb_launcher_preboot(void) {
+     const char* platform = game_get_platform();
+     launcher_profile_apply(platform && platform[0] ? platform : "gbc", &gi);
+     gi.name = game_get_name();
+-    gi.region = "USA";
++    gi.region = game_get_region();
++#if defined(GBRECOMP_POKANTO_FIXED_ROM)
++    gi.rom_selection_locked = 1;
++#endif
+     /* The runtime derives the .sav name from the cart's save-id / header title,
+      * which isn't known until the ROM is loaded (after this preboot). Leave the
+      * SAVE row inert (no import/clear against a wrong file) rather than guess a
+@@ -213,10 +244,13 @@ int gb_launcher_preboot(void) {
+             fclose(rc);
+         }
+     }
++#if defined(GBRECOMP_POKANTO_FIXED_ROM)
++    snprintf(initial_rom, sizeof(initial_rom), "%s", automatic_rom);
++#endif
+ 
+     char title[256];
+-    snprintf(title, sizeof(title), "%s \xE2\x80\x94 Launcher",
+-             gi.name ? gi.name : "Game Boy");
++    snprintf(title, sizeof(title), "%s \xE2\x80\x94 %s",
++             gi.name ? gi.name : "Game Boy", POKANTO_TEXT_LAUNCHER_TITLE);
+ 
+     char out_rom[1024];
+     out_rom[0] = '\0';
+diff --git a/runtime/src/platform_sdl.cpp b/runtime/src/platform_sdl.cpp
+index 465ef72..45fbb92 100644
+--- a/runtime/src/platform_sdl.cpp
++++ b/runtime/src/platform_sdl.cpp
+@@ -32,7 +32,11 @@ extern "C" void gb_debug_server_set_context(GBContext *ctx);
+ 
+ #ifdef GB_HAS_SDL2
+ #include <SDL.h>
++#if defined(__APPLE__)
++#include <OpenGL/gl3.h>
++#else
+ #include <SDL_opengles2.h>
++#endif
+ #include <algorithm>
+ #include <atomic>
+ #include <cctype>
+@@ -4746,10 +4750,15 @@ bool gb_platform_init(int scale) {
+         g_script_count == 0 && g_dump_count == 0 &&
+         g_dump_present_count == 0 && g_dump_cycle_count == 0 &&
+         !env_flag_enabled("GBRECOMP_NO_LAUNCHER")) {
+-        if (gb_launcher_preboot() == GB_LAUNCHER_QUIT) {
++        const int launcher_result = gb_launcher_preboot();
++        if (launcher_result == GB_LAUNCHER_QUIT) {
+             /* user closed the launcher window: clean exit, no game boot */
+             exit(0);
+         }
++        if (launcher_result == GB_LAUNCHER_ERROR) {
++            /* Required ROM missing/invalid: preboot already showed the alert. */
++            exit(1);
++        }
+     }
+ #endif
+ 
+@@ -4806,12 +4815,16 @@ bool gb_platform_init(int scale) {
+      * (libGLESv2.dll/libEGL.dll), matching our link-time GL functions. */
+     SDL_SetHint(SDL_HINT_OPENGL_ES_DRIVER, "1");
+ #endif
+-    /* Request a GLES 2.0 context — same code path on desktop Mesa
+-     * (which advertises a compatible profile) and embedded Mali / Adreno
+-     * GPUs. SDL_WINDOW_OPENGL must be set BEFORE SDL_CreateWindow. */
++    /* Apple ships desktop OpenGL, while other targets use GLES 2.0. */
++#if defined(__APPLE__)
++    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
++    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
++    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
++#else
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
++#endif
+     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
+ 
+@@ -4883,9 +4896,13 @@ bool gb_platform_init(int scale) {
+ 
+     apply_imgui_theme(g_imgui_theme);
+ 
+-    /* GLES 2 backend — `#version 100` GLSL, no VAOs, runs anywhere. */
++    /* Match the renderer backend and shader dialect to the platform context. */
+     ImGui_ImplSDL2_InitForOpenGL(g_window, g_gl_context);
++#if defined(__APPLE__)
++    ImGui_ImplOpenGL3_Init("#version 150");
++#else
+     ImGui_ImplOpenGL3_Init("#version 100");
++#endif
+ 
+ #ifdef RECOMP_LAUNCHER
+     create_runtime_ui();
+@@ -5264,6 +5281,18 @@ bool gb_platform_poll_events(GBContext* ctx) {
+     gb_debug_server_poll();
+     gb_debug_server_wait_if_paused();
+ 
++#if defined(GBRECOMP_HOST_EXIT_SIGNAL)
++    /* A language-specific game patch may request host shutdown through the
++     * unused FF7E/FF7F registers (signature "PK"). Consume the command and
++     * let the normal SDL loop terminate. */
++    if (ctx && ctx->io[0x7E] == 0x50 && ctx->io[0x7F] == 0x4B) {
++        ctx->io[0x7E] = 0;
++        ctx->io[0x7F] = 0;
++        g_exit_action = GB_PLATFORM_EXIT_QUIT;
++        return false;
++    }
++#endif
++
+     SDL_Event event;
+ 
+     if (!g_benchmark_mode) {
+diff --git a/runtime/src/shader_pipeline.cpp b/runtime/src/shader_pipeline.cpp
+index 3390e22..476928f 100644
+--- a/runtime/src/shader_pipeline.cpp
++++ b/runtime/src/shader_pipeline.cpp
+@@ -9,7 +9,11 @@
+ #include "shader_pipeline.h"
+ 
+ #include <SDL.h>
++#if defined(__APPLE__)
++#include <OpenGL/gl3.h>
++#else
+ #include <SDL_opengles2.h>
++#endif
+ 
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -22,6 +26,43 @@
+ 
+ namespace {
+ 
++#if defined(__APPLE__)
++std::string desktop_glsl(const char* source, GLenum stage) {
++    std::string result = source ? source : "";
++    auto replace_all = [&result](const char* from, const char* to) {
++        size_t pos = 0;
++        const size_t from_len = strlen(from);
++        while ((pos = result.find(from, pos)) != std::string::npos) {
++            result.replace(pos, from_len, to);
++            pos += strlen(to);
++        }
++    };
++    replace_all("#version 100", "#version 150");
++    replace_all("precision mediump float;", "");
++    replace_all("precision highp float;", "");
++    replace_all("precision lowp float;", "");
++    replace_all("texture2D(", "texture(");
++    while (!result.empty() && (result.front() == '\n' || result.front() == '\r' ||
++                               result.front() == ' ' || result.front() == '\t')) {
++        result.erase(result.begin());
++    }
++    if (result.rfind("#version", 0) != 0) {
++        result.insert(0, "#version 150\n");
++    }
++    if (stage == GL_VERTEX_SHADER) {
++        replace_all("attribute ", "in ");
++        replace_all("varying ", "out ");
++    } else {
++        replace_all("varying ", "in ");
++        replace_all("gl_FragColor", "frag_color");
++        const size_t version_end = result.find('\n');
++        result.insert(version_end == std::string::npos ? 0 : version_end + 1,
++                      "out vec4 frag_color;\n");
++    }
++    return result;
++}
++#endif
++
+ /* Vertex shader, shared by every effect. */
+ constexpr const char* VS_SRC = R"GLSL(
+ #version 100
+@@ -125,6 +166,12 @@ bool log_link(GLuint prog, const char* label) {
+ }
+ 
+ GLuint compile_program(const char* vs_src, const char* fs_src, const char* label) {
++#if defined(__APPLE__)
++    const std::string desktop_vs = desktop_glsl(vs_src, GL_VERTEX_SHADER);
++    const std::string desktop_fs = desktop_glsl(fs_src, GL_FRAGMENT_SHADER);
++    vs_src = desktop_vs.c_str();
++    fs_src = desktop_fs.c_str();
++#endif
+     GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+     glShaderSource(vs, 1, &vs_src, NULL);
+     glCompileShader(vs);
+@@ -184,6 +231,9 @@ struct GBShaderPipeline {
+     std::vector<ShaderEntry> shaders;
+     int    active = -1;
+     GLuint quad_vbo = 0;
++#if defined(__APPLE__)
++    GLuint quad_vao = 0;
++#endif
+     std::string override_dir;
+ };
+ 
+@@ -193,6 +243,11 @@ GBShaderPipeline* gb_shader_pipeline_create(void) {
+     p->shaders.push_back({"smooth", FS_SMOOTH, 0, -1, -1, -1, -1, -1, -1, -1, false, false});
+     p->shaders.push_back({"lcd",    FS_LCD,    0, -1, -1, -1, -1, -1, -1, -1, false, false});
+     glGenBuffers(1, &p->quad_vbo);
++#if defined(__APPLE__)
++    /* Core-profile OpenGL requires a VAO to be bound while setting vertex
++     * attribute pointers. GLES2 and compatibility contexts do not. */
++    glGenVertexArrays(1, &p->quad_vao);
++#endif
+     p->active = 0;
+     return p;
+ }
+@@ -203,6 +258,9 @@ void gb_shader_pipeline_destroy(GBShaderPipeline* p) {
+         if (e.program) glDeleteProgram(e.program);
+     }
+     if (p->quad_vbo) glDeleteBuffers(1, &p->quad_vbo);
++#if defined(__APPLE__)
++    if (p->quad_vao) glDeleteVertexArrays(1, &p->quad_vao);
++#endif
+     delete p;
+ }
+ 
+@@ -277,6 +335,9 @@ void gb_shader_pipeline_draw(GBShaderPipeline* p,
+         x0, y1, 0.0f, 1.0f,
+     };
+ 
++#if defined(__APPLE__)
++    glBindVertexArray(p->quad_vao);
++#endif
+     glBindBuffer(GL_ARRAY_BUFFER, p->quad_vbo);
+     glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
+ 
+@@ -309,4 +370,7 @@ void gb_shader_pipeline_draw(GBShaderPipeline* p,
+ 
+     if (e.a_pos >= 0) glDisableVertexAttribArray(e.a_pos);
+     if (e.a_uv  >= 0) glDisableVertexAttribArray(e.a_uv);
++#if defined(__APPLE__)
++    glBindVertexArray(0);
++#endif
+ }

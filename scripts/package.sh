@@ -47,6 +47,10 @@ rm -rf "$STAGE" "$ZIP"; mkdir -p "$STAGE"
 cp "$EXE" "$STAGE/$EXENAME"
 cp "$ROM" "$STAGE/rom.gb"
 printf 'rom.gb\n' > "$STAGE/rom.cfg"   # relative -> resolves next to the exe
+if [ "$V" = "stock" ]; then
+  cp "$P/generated/build/Pokemon_Red_Blue.bps" "$STAGE/"
+  cp "$P/generated/build/Pokemon_Red_Blue-D6DA8A1A.bps" "$STAGE/"
+fi
 
 # Auto-derive the DLL set: walk the exe's import table transitively, bundling
 # only DLLs that live in the mingw64 toolchain dir (system DLLs ship with
@@ -81,4 +85,4 @@ PS="/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
   "Compress-Archive -Path '$(cygpath -w "$STAGE")\\*' -DestinationPath '$(cygpath -w "$ZIP")' -Force"
 
 echo "PACKAGED: dist/Pokemon_${GCAP}_${VCAP}_$VER.zip  ($(du -h "$ZIP" | cut -f1)), $(ls "$STAGE" | wc -l) files"
-echo "  contents: $EXENAME + ${#seen[@]} DLLs + rom.gb + rom.cfg + run.bat"
+echo "  contents: $EXENAME + ${#seen[@]} DLLs + rom.gb + rom.cfg + run.bat + ROM patches"

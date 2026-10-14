@@ -1,0 +1,148 @@
+diff --git a/engine/menus/draw_start_menu.asm b/engine/menus/draw_start_menu.asm
+index 7a048528..16ae882c 100644
+--- a/engine/menus/draw_start_menu.asm
++++ b/engine/menus/draw_start_menu.asm
+@@ -2,21 +2,21 @@
+ DrawStartMenu::
+ 	CheckEvent EVENT_GOT_POKEDEX
+ ; menu with pokedex
+-	hlcoord 10, 0
++	hlcoord 5, 0
+ 	ld b, $0e
+-	ld c, $08
++	ld c, $0d
+ 	jr nz, .drawTextBoxBorder
+ ; shorter menu if the player doesn't have the pokedex
+-	hlcoord 10, 0
++	hlcoord 5, 0
+ 	ld b, $0c
+-	ld c, $08
++	ld c, $0d
+ .drawTextBoxBorder
+ 	call TextBoxBorder
+ 	ld a, PAD_DOWN | PAD_UP | PAD_START | PAD_B | PAD_A
+ 	ld [wMenuWatchedKeys], a
+ 	ld a, $02
+ 	ld [wTopMenuItemY], a ; Y position of first menu choice
+-	ld a, $0b
++	ld a, $06
+ 	ld [wTopMenuItemX], a ; X position of first menu choice
+ 	ld a, [wBattleAndStartSavedMenuItem] ; remembered menu selection from last time
+ 	ld [wCurrentMenuItem], a
+@@ -25,7 +25,7 @@ DrawStartMenu::
+ 	ld [wMenuWatchMovingOutOfBounds], a
+ 	ld hl, wStatusFlags5
+ 	set BIT_NO_TEXT_DELAY, [hl]
+-	hlcoord 12, 2
++	hlcoord 7, 2
+ 	CheckEvent EVENT_GOT_POKEDEX
+ ; case for not having pokedex
+ 	ld a, $06
+@@ -75,7 +75,7 @@ StartMenuResetText:
+ 	db "RESET@"
+ 
+ StartMenuExitText:
+-	db "EXIT@"
++	db "CLOSE GAME@"
+ 
+ StartMenuOptionText:
+ 	db "OPTION@"
+diff --git a/engine/menus/main_menu.asm b/engine/menus/main_menu.asm
+index 84af085f..e2d0b1e2 100644
+--- a/engine/menus/main_menu.asm
++++ b/engine/menus/main_menu.asm
+@@ -34,7 +34,7 @@ MainMenu:
+ 	jr z, .noSaveFile
+ ; there's a save file
+ 	hlcoord 0, 0
+-	ld b, 6
++	ld b, 7
+ 	ld c, 13
+ 	call TextBoxBorder
+ 	hlcoord 2, 2
+@@ -43,7 +43,7 @@ MainMenu:
+ 	jr .next2
+ .noSaveFile
+ 	hlcoord 0, 0
+-	ld b, 4
++	ld b, 5
+ 	ld c, 13
+ 	call TextBoxBorder
+ 	hlcoord 2, 2
+@@ -64,6 +64,7 @@ MainMenu:
+ 	ld a, PAD_A | PAD_B | PAD_START
+ 	ld [wMenuWatchedKeys], a
+ 	ld a, [wSaveFileStatus]
++	inc a ; include QUIT GAME as the final menu entry
+ 	ld [wMaxMenuItem], a
+ 	call HandleMenuInput
+ 	bit B_PAD_B, a
+@@ -84,6 +85,10 @@ MainMenu:
+ 	jr z, .choseContinue
+ 	cp 1
+ 	jp z, StartNewGame
++	cp 2
++	jr z, .choseOptions
++	jp MainMenuQuit
++.choseOptions
+ 	call DisplayOptionMenu
+ 	ld a, TRUE
+ 	ld [wOptionsInitialized], a
+@@ -340,6 +345,13 @@ SpecialEnterMap::
+ 	ret nz
+ 	jp EnterMap
+ 
++MainMenuQuit:
++	ld a, $50 ; 'P'
++	ld [$FF7E], a
++	ld a, $4B ; 'K'
++	ld [$FF7F], a
++	jp DisplayTitleScreen
++
+ ContinueText:
+ 	db "CONTINUE"
+ 	next ""
+@@ -347,7 +359,8 @@ ContinueText:
+ 
+ NewGameText:
+ 	db   "NEW GAME"
+-	next "OPTION@"
++	next "OPTION"
++	next "QUIT GAME@"
+ 
+ CableClubOptionsText:
+ 	db   "TRADE CENTER"
+diff --git a/home/start_menu.asm b/home/start_menu.asm
+index 9504d536..ed01fc30 100644
+--- a/home/start_menu.asm
++++ b/home/start_menu.asm
+@@ -75,7 +75,28 @@ RedisplayStartMenu::
+ 	cp 5
+ 	jp z, StartMenu_Option
+ 
+-; EXIT falls through to here
++; EXIT closes the desktop game after offering to save.
++	jp StartMenu_Quit
++
++StartMenu_Quit:
++	ld hl, StartMenu_QuitPromptText
++	call PrintText
++	call YesNoChoice
++	ld a, [wCurrentMenuItem] ; 0 = yes, 1 = no
++	and a
++	jr nz, .quit
++	farcall SaveGameData
++.quit
++	ld a, $50 ; 'P'
++	ld [$FF7E], a
++	ld a, $4B ; 'K'
++	ld [$FF7F], a
++	jp CloseStartMenu
++
++StartMenu_QuitPromptText:
++	text_far _WouldYouLikeToSaveText
++	text_end
++
+ CloseStartMenu::
+ 	call Joypad
+ 	ldh a, [hJoyPressed]

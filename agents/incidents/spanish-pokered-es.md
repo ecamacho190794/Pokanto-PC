@@ -58,6 +58,41 @@ misses. No reutilizar `pokemon_red_blue.toml`, las semillas de
 contra el `.sym` español. Probar al menos: inicio de partida, movimiento en
 Pueblo Paleta, combate, transición de mapa, guardado y carga.
 
+## Incidente: bloqueo en el primer frame por cargar la ROM sin parche
+
+El 13-oct-2026 el usuario informó que el ejecutable español abría pero se
+congelaba en el primer frame, sin audio; el ejecutable inglés funcionaba.
+
+### Causa confirmada
+
+La generación española usa `Pokemon_Edicion_Roja_patched.gbc` como imagen base,
+y el C generado configura `Pokemon_Edicion_Roja.bps` para adaptar el dump
+original al iniciar. Sin embargo, `spanish/game_build.cmake` no definía
+`GBRECOMP_APPLY_ROM_PATCH`. `launcher.c` solo entra a `resolve_or_patch()` bajo
+ese define. Como `spanish/extras.c` acepta el CRC del dump original, el runtime
+podía aceptar y cargar el archivo sin aplicarle el BPS: el código recompilado y
+los datos/direcciones de ROM quedaban desincronizados. Esto concuerda con el
+bloqueo reportado; antes de la corrección no había evidencia de un error de
+shader ni de una caída del proceso.
+
+Además, `spanish/game_build.cmake` tampoco definía
+`GBRECOMP_HOST_EXIT_SIGNAL`, necesario para que el runtime consuma la firma `PK`
+escrita por las opciones españolas de salida. Este segundo define no explica el
+bloqueo inicial, pero sí es necesario para que la función de cerrar el juego
+documentada arriba opere.
+
+### Cambios y verificación
+
+- Se añadieron `GBRECOMP_APPLY_ROM_PATCH=1` y
+  `GBRECOMP_HOST_EXIT_SIGNAL=1` a `spanish/game_build.cmake`.
+- Se regeneró la configuración y compiló el ejecutable español en macOS arm64.
+- Se verificó que el `build.ninja` configurado incluya los dos defines y que el
+  BPS local transforma el ROM original en la imagen personalizada esperada.
+
+La compilación y la validación del artefacto no sustituyen la prueba interactiva.
+Queda pendiente volver a ejecutar el binario corregido y confirmar que supera el
+primer frame, reproduce sonido y que las dos opciones de salida cierran el juego.
+
 ## Lanzador: selección fija de ROM
 
 La variante española compila `GBRECOMP_POKEMON_ES` solo en

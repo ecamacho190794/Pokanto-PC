@@ -1,0 +1,43 @@
+#ifndef POKANTO_LAUNCHER_STRINGS_H
+#define POKANTO_LAUNCHER_STRINGS_H
+
+/* Shared launcher UI strings for the English ROM build. Keep keys aligned with
+ * languages/es/launcher_strings.h when adding labels. */
+#define POKANTO_TEXT_LAUNCHER_TITLE "Launcher"
+#define POKANTO_TEXT_ROM "ROM"
+#define POKANTO_TEXT_ROM_MISSING "No valid Pokémon Red or Blue .gb ROM was found beside the game.\n\nThe game will close."
+#define POKANTO_TEXT_ROM_MISSING_TITLE "ROM not found"
+#define POKANTO_TEXT_ROM_MISSING_LOG "No valid .gb ROM found beside executable"
+#define POKANTO_TEXT_ROM_MISSING_STATUS "No %s loaded"
+#define POKANTO_TEXT_ROM_VALID "%s valid"
+#define POKANTO_TEXT_ROM_INVALID "%s not recognized"
+#define POKANTO_TEXT_REGION "Region"
+#define POKANTO_TEXT_FILE "File"
+#define POKANTO_TEXT_DISPLAY "DISPLAY"
+#define POKANTO_TEXT_WINDOW_SCALE "Window scale"
+#define POKANTO_TEXT_FULLSCREEN "Fullscreen"
+#define POKANTO_TEXT_LINEAR_FILTER "Linear filtering"
+#define POKANTO_TEXT_SCREEN_MODEL "Screen model"
+#define POKANTO_TEXT_KEYBOARD "Keyboard"
+#define POKANTO_TEXT_KEYBOARD_MOUSE "Keyboard + Mouse"
+#define POKANTO_TEXT_NONE "None"
+#define POKANTO_TEXT_NO_GAMEPAD "(no gamepad connected)"
+#define POKANTO_TEXT_CONFIGURE "Configure"
+#define POKANTO_TEXT_CONNECTED "Connected"
+#define POKANTO_TEXT_UNASSIGNED "Unassigned"
+#define POKANTO_TEXT_PLAY "PLAY"
+#define POKANTO_TEXT_SKIP_LAUNCHER "Skip launcher on boot"
+#define POKANTO_TEXT_SETTINGS "Settings"
+#define POKANTO_TEXT_BACK "< Back"
+#define POKANTO_TEXT_FULLSCREEN_OFF "Off"
+#define POKANTO_TEXT_FULLSCREEN_BORDERLESS "Borderless"
+#define POKANTO_TEXT_FULLSCREEN_EXCLUSIVE "Exclusive"
+#define POKANTO_TEXT_SCREEN_DMG "DMG"
+#define POKANTO_TEXT_SCREEN_POCKET "Game Boy Pocket"
+#define POKANTO_TEXT_SCREEN_LIGHT "Game Boy Light"
+#define POKANTO_TEXT_SCREEN_MONO "Black and white"
+#define POKANTO_TEXT_SCREEN_AMBER "Amber (phosphor)"
+#define POKANTO_TEXT_SCREEN_SGB "Super Game Boy"
+#define POKANTO_TEXT_SCREEN_SGB_NO_BORDER "Super Game Boy (no border)"
+
+#endif

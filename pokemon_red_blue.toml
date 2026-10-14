@@ -3,7 +3,7 @@
 # Red and Blue share identical code layout; only data differs.
 
 [rom]
-path = "roms/Pokemon Red (UE) [S][!].gb"
+path = "generated/Pokemon_Red_Blue_patched.gbc"
 output_dir = "generated"
 runtime_dir = "../gb-recompiled/runtime"
 # CRC32 identity hooks now live in extras.c (game_get_valid_crcs).
@@ -462,4 +462,3 @@ end = 0x8000
 bank = 63
 start = 0x4000
 end = 0x8000
-

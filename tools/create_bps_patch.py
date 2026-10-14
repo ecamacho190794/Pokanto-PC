@@ -117,10 +117,20 @@ def main() -> None:
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--source-crc32",
+        type=lambda value: int(value, 0),
+        help="require the source ROM to have this CRC32 before creating the patch",
+    )
     args = parser.parse_args()
 
     source = args.source.read_bytes()
     target = args.target.read_bytes()
+    if args.source_crc32 is not None and crc32(source) != args.source_crc32:
+        raise SystemExit(
+            f"source ROM CRC32 mismatch: expected {args.source_crc32:08X}, "
+            f"got {crc32(source):08X}"
+        )
     patch = build_patch(source, target)
     if apply_patch(patch, source) != target:
         raise SystemExit("generated BPS patch did not reproduce the target ROM")

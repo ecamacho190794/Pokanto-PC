@@ -30,9 +30,7 @@ export TMPDIR="C:/msys64/tmp" TMP="C:/msys64/tmp" TEMP="C:/msys64/tmp"
 case "$V" in
   stock)
     echo "== [stock] static recompile Red+Blue =="
-    ( cd "$P" && "$GBRECOMP" --config pokemon_red_blue.toml )
-    "$MGW/cmake.exe" -G Ninja -S "$P/generated" -B "$P/generated/build"
-    "$MGW/ninja.exe" -C "$P/generated/build"
+    ( cd "$P" && ./build.sh english all )
     echo "BUILT: generated/build/Pokemon_Red_Blue.exe"
     "$P/scripts/package.sh" red  stock "$VER"
     "$P/scripts/package.sh" blue stock "$VER"

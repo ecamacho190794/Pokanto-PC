@@ -1,0 +1,43 @@
+#ifndef POKANTO_LAUNCHER_STRINGS_H
+#define POKANTO_LAUNCHER_STRINGS_H
+
+/* Textos compartidos del launcher para Pokémon Edición Roja. Mantén las
+ * mismas claves en languages/en/launcher_strings.h. */
+#define POKANTO_TEXT_LAUNCHER_TITLE "Lanzador"
+#define POKANTO_TEXT_ROM "ROM"
+#define POKANTO_TEXT_ROM_MISSING "No se encontró una ROM .gb válida de Pokémon Edición Roja junto al juego.\n\nEl juego se cerrará."
+#define POKANTO_TEXT_ROM_MISSING_TITLE "No se encontró la ROM"
+#define POKANTO_TEXT_ROM_MISSING_LOG "No se encontró una ROM .gb válida junto al ejecutable"
+#define POKANTO_TEXT_ROM_MISSING_STATUS "No hay %s cargada"
+#define POKANTO_TEXT_ROM_VALID "%s válida"
+#define POKANTO_TEXT_ROM_INVALID "%s no reconocida"
+#define POKANTO_TEXT_REGION "Región"
+#define POKANTO_TEXT_FILE "Archivo"
+#define POKANTO_TEXT_DISPLAY "PANTALLA"
+#define POKANTO_TEXT_WINDOW_SCALE "Escala de ventana"
+#define POKANTO_TEXT_FULLSCREEN "Pantalla completa"
+#define POKANTO_TEXT_LINEAR_FILTER "Filtro lineal"
+#define POKANTO_TEXT_SCREEN_MODEL "Modelo de pantalla"
+#define POKANTO_TEXT_KEYBOARD "Teclado"
+#define POKANTO_TEXT_KEYBOARD_MOUSE "Teclado + ratón"
+#define POKANTO_TEXT_NONE "Ninguno"
+#define POKANTO_TEXT_NO_GAMEPAD "(no hay mando conectado)"
+#define POKANTO_TEXT_CONFIGURE "Configurar"
+#define POKANTO_TEXT_CONNECTED "Conectado"
+#define POKANTO_TEXT_UNASSIGNED "Sin asignar"
+#define POKANTO_TEXT_PLAY "JUGAR"
+#define POKANTO_TEXT_SKIP_LAUNCHER "Omitir el lanzador al iniciar"
+#define POKANTO_TEXT_SETTINGS "Opciones"
+#define POKANTO_TEXT_BACK "< Volver"
+#define POKANTO_TEXT_FULLSCREEN_OFF "Desactivada"
+#define POKANTO_TEXT_FULLSCREEN_BORDERLESS "Sin bordes"
+#define POKANTO_TEXT_FULLSCREEN_EXCLUSIVE "Exclusiva"
+#define POKANTO_TEXT_SCREEN_DMG "DMG"
+#define POKANTO_TEXT_SCREEN_POCKET "Game Boy Pocket"
+#define POKANTO_TEXT_SCREEN_LIGHT "Game Boy Light"
+#define POKANTO_TEXT_SCREEN_MONO "Blanco y negro"
+#define POKANTO_TEXT_SCREEN_AMBER "Ámbar (fósforo)"
+#define POKANTO_TEXT_SCREEN_SGB "Super Game Boy"
+#define POKANTO_TEXT_SCREEN_SGB_NO_BORDER "Super Game Boy (sin borde)"
+
+#endif

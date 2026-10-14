@@ -9,3 +9,6 @@
 [submodule "third_party/pokered-es"]
 	path = third_party/pokered-es
 	url = https://github.com/einstein95/pokered-es.git
+[submodule "third_party/pokered"]
+	path = third_party/pokered
+	url = https://github.com/pret/pokered.git

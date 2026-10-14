@@ -1,0 +1,12 @@
+{
+  "id": "en",
+  "display_name": "English",
+  "launcher_catalog": "launcher_strings.h",
+  "build_entry": "build.sh",
+  "rom_input": "roms/Pokemon Red (UE) [S][!].gb",
+  "accepted_rom_crc32": ["9F7FDD53", "D6DA8A1A"],
+  "recompiler_config": "../../pokemon_red_blue.toml",
+  "game_build_hooks": "../../game_build.cmake",
+  "game_extras": "../../extras.c",
+  "source_patch": null
+}

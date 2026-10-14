@@ -91,14 +91,18 @@ sudo apt install cmake ninja-build libsdl2-dev build-essential
 git clone --recursive https://github.com/ecamacho190794/Pokanto-PC.git
 cd Pokanto-PC
 cp /path/to/your-pokemon-rom.gb roms/
-./build.sh all   # Full build (recompiler + code gen + compile)
+./build.sh english all   # Full English build (ROM assembly + code gen + compile)
 ./build.sh run   # Build + launch
 ```
 
 For the stock build, name the ROM `roms/Pokemon Red (UE) [S][!].gb` as
-configured in `pokemon_red_blue.toml`. You must provide your own legally
-obtained ROM; it is not included in this repository. The generated executable
-uses the host platform's native format (for example, Mach-O on macOS).
+configured in `pokemon_red_blue.toml`; the English build checks its identity.
+You must provide your own legally obtained ROM; it is not included in this
+repository. RGBDS is also required to assemble the patched English Red/Blue
+images from the pinned Pokered source. Keep both generated BPS files next to
+the executable and the selected stock `.gb` ROM; the launcher chooses the Red
+or Blue patch by CRC. The executable uses the host platform's native format
+(for example, Mach-O on macOS).
 
 Build commands:
 - `./build.sh all` — Full rebuild (recompiler + regenerate + compile)
@@ -107,13 +111,28 @@ Build commands:
 - `./build.sh bank 00 03` — Regenerate + rebuild specific banks
 - `./build.sh run` — Build + launch
 
-### Pokémon Edición Roja en español (v0.0.1)
+### Compilación por idioma
 
-Pokered-es has a separate build path: initialize submodules, install RGBDS,
-build the recompiler, then run `./build-spanish.sh`. It verifies the Spanish ROM
-hash and writes `spanish/generated/build/Pokemon_Edicion_Roja`. See
-[`spanish/README.md`](spanish/README.md) and the persistent agent notes in
-[`agents/`](agents/).
+El flujo de idioma se unifica desde el punto de entrada raíz. Las variantes
+viven bajo [`languages/`](languages/) y se eligen con `./build.sh english` o
+`./build.sh spanish`. Cada variante define su `variant.json`, su
+`launcher_strings.h` y su script de build, pero comparte el launcher y el
+runtime del proyecto; un cambio del launcher o del cierre del juego se aplica a
+la lógica común y no se duplica por idioma.
+
+El launcher comparte diseño y comportamiento: busca una ROM `.gb` válida junto
+al ejecutable, muestra una alerta si falta, y presenta la ROM de forma compacta
+con los ajustes de pantalla en el panel principal. Los textos se toman del
+catálogo de cada idioma. El build español conserva su parche específico de
+Pokered-es, pero el flujo general sigue siendo el mismo. Consulta
+[`languages/README.md`](languages/README.md), [`spanish/README.md`](spanish/README.md)
+y las notas de [`agents/`](agents/).
+
+The English title menu includes `QUIT GAME`; the pause menu includes
+`CLOSE GAME` and asks whether to save before exiting. These options are
+assembled into both English Red and Blue images. The build and BPS verification
+are documented in
+[`agents/incidents/english-desktop-exit.md`](agents/incidents/english-desktop-exit.md).
 
 ## Controls
 
