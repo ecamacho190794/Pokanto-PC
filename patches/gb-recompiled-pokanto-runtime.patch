@@ -1,19 +1,12 @@
 diff --git a/runtime/CMakeLists.txt b/runtime/CMakeLists.txt
-index d4268de..70c1f8c 100644
+index d4268de..a66fd02 100644
 --- a/runtime/CMakeLists.txt
 +++ b/runtime/CMakeLists.txt
-@@ -24,6 +24,7 @@ add_library(gbrt STATIC
-     src/game_defaults/game_default_dispatch_override.c
-     src/game_defaults/game_default_get_name.c
-     src/game_defaults/game_default_get_platform.c
+@@ -23,0 +24 @@ add_library(gbrt STATIC
++    src/game_defaults/game_default_handle_dev_hotkey.c
+@@ -26,0 +28 @@ add_library(gbrt STATIC
 +    src/game_defaults/game_default_get_region.c
-     src/game_defaults/game_default_handle_arg.c
-     src/game_defaults/game_default_get_expected_crc32.c
-     src/game_defaults/game_default_get_valid_crcs.c
-@@ -104,10 +105,12 @@ if(SDL2_FOUND)
-     # imgui_impl_opengl3 is dialect-selected at compile time. Force the
-     # GLES 2.0 path so one binary covers desktop Mesa, Mali, Adreno,
-     # everything we care about.
+@@ -107,4 +109,6 @@ if(SDL2_FOUND)
 -    set_source_files_properties(
 -        vendor/imgui/backends/imgui_impl_opengl3.cpp
 -        PROPERTIES COMPILE_DEFINITIONS "IMGUI_IMPL_OPENGL_ES2"
@@ -24,53 +17,38 @@ index d4268de..70c1f8c 100644
 +            PROPERTIES COMPILE_DEFINITIONS "IMGUI_IMPL_OPENGL_ES2"
 +        )
 +    endif()
-     target_include_directories(gbrt PUBLIC
-         ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui
-     )
-@@ -197,7 +200,10 @@ if(GBRECOMP_RECOMP_UI AND SDL2_FOUND AND EXISTS "${RECOMP_UI_ROOT}/src/recomp_la
-     # LNG_GLES2: the shared ImGui opengl3 backend is compiled for GLES 2 (ANGLE),
-     # so the launcher must create a matching GLES context (not desktop GL core).
-     target_compile_definitions(gbrt PRIVATE
+@@ -200 +204,4 @@ if(GBRECOMP_RECOMP_UI AND SDL2_FOUND AND EXISTS "${RECOMP_UI_ROOT}/src/recomp_la
 -        RECOMP_LAUNCHER SDL_MAIN_HANDLED RECOMP_UI_HOST_STB_WRITE LNG_GLES2)
 +        RECOMP_LAUNCHER SDL_MAIN_HANDLED RECOMP_UI_HOST_STB_WRITE)
 +    if(NOT APPLE)
 +        target_compile_definitions(gbrt PRIVATE LNG_GLES2)
 +    endif()
-     message(STATUS "recomp-ui launcher: ON (${RECOMP_UI_ROOT})")
- elseif(GBRECOMP_RECOMP_UI)
-     message(STATUS "recomp-ui launcher: OFF (not found at ${RECOMP_UI_ROOT} or no SDL2)")
 diff --git a/runtime/include/game_extras.h b/runtime/include/game_extras.h
-index ed247f4..452e622 100644
+index ed247f4..946c969 100644
 --- a/runtime/include/game_extras.h
 +++ b/runtime/include/game_extras.h
-@@ -98,6 +98,10 @@ const char *game_get_name(void);
-  * Mario Land) override this to "gb" in their extras.c. */
- const char *game_get_platform(void);
- 
+@@ -19,0 +20,7 @@ struct GBContext;
++typedef enum {
++    GB_DEV_HOTKEY_LEVEL_UP_FIRST_POKEMON = 1,
++    GB_DEV_HOTKEY_RARE_CANDY = 2,
++} GBDevHotkey;
++
++int game_handle_dev_hotkey(struct GBContext *ctx, GBDevHotkey hotkey);
++
+@@ -100,0 +108,4 @@ const char *game_get_platform(void);
 +/* Return a short region label for the launcher (for example "USA / Europe"
 + * or "España"). Default: "USA". */
 +const char *game_get_region(void);
 +
- /* Handle a CLI argument. Return 1 if consumed, 0 to ignore. */
- int game_handle_arg(const char *arg, const char *next_arg);
- 
 diff --git a/runtime/include/launcher.h b/runtime/include/launcher.h
 index f025bd3..3fe24b9 100644
 --- a/runtime/include/launcher.h
 +++ b/runtime/include/launcher.h
-@@ -1,5 +1,8 @@
- #pragma once
- 
+@@ -2,0 +3,3 @@
 +#include <stddef.h>
 +#include <stdint.h>
 +
- /**
-  * launcher.h — ROM discovery, identity verification, and external-ROM loading.
-  *
-@@ -52,6 +55,17 @@ void launcher_set_patch_file(const char *filename);
-  */
- const char *launcher_get_rom_path(void);
- 
+@@ -54,0 +58,11 @@ const char *launcher_get_rom_path(void);
 +/**
 + * Find the first lexicographically named file with `extension` in `directory`
 + * whose CRC matches the game's accepted CRC list. Returns 1 and writes the
@@ -82,29 +60,17 @@ index f025bd3..3fe24b9 100644
 +                                         char *out_path,
 +                                         size_t out_path_size);
 +
- /**
-  * Load a ROM file into a malloc'd buffer.
-  * Caller must free the returned buffer.
 diff --git a/runtime/include/launcher_ui_seam.h b/runtime/include/launcher_ui_seam.h
 index 7709204..4923103 100644
 --- a/runtime/include/launcher_ui_seam.h
 +++ b/runtime/include/launcher_ui_seam.h
-@@ -26,6 +26,7 @@ extern "C" {
- #define GB_LAUNCHER_LAUNCH      0  /* user hit PLAY: settings+rom persisted, boot */
- #define GB_LAUNCHER_QUIT        1  /* user closed the launcher: the caller exits */
- #define GB_LAUNCHER_UNAVAILABLE 2  /* launcher could not initialize: fall back */
+@@ -28,0 +29 @@ extern "C" {
 +#define GB_LAUNCHER_ERROR       3  /* required ROM missing/invalid: show alert and exit */
- 
- /* Show the pre-boot launcher. See the file comment. Returns one of the codes
-  * above. Safe to call once, before SDL is initialized (it self-manages SDL). */
 diff --git a/runtime/src/launcher.c b/runtime/src/launcher.c
 index 5fb092f..2a57679 100644
 --- a/runtime/src/launcher.c
 +++ b/runtime/src/launcher.c
-@@ -12,6 +12,13 @@
- #include <stdio.h>
- #include <stdlib.h>
- #include <string.h>
+@@ -14,0 +15,7 @@
 +#ifndef _WIN32
 +#include <dirent.h>
 +#include <strings.h>
@@ -112,13 +78,7 @@ index 5fb092f..2a57679 100644
 +#ifdef GB_HAS_SDL2
 +#include <SDL.h>
 +#endif
- 
- #ifdef _WIN32
- #  define WIN32_LEAN_AND_MEAN
-@@ -77,6 +84,18 @@ void launcher_init(void) {
-     if (last_sep) *(last_sep + 1) = '\0';
-     snprintf(s_exe_dir, sizeof(s_exe_dir), "%s", exe_path);
-     snprintf(s_cfg_path, sizeof(s_cfg_path), "%srom.cfg", exe_path);
+@@ -79,0 +87,12 @@ void launcher_init(void) {
 +#elif defined(GB_HAS_SDL2)
 +    /* Keep rom.cfg beside the executable on Unix-like systems too. The
 +     * pre-boot launcher uses SDL_GetBasePath() for this same location. */
@@ -131,13 +91,7 @@ index 5fb092f..2a57679 100644
 +        s_exe_dir[0] = '\0';
 +        strcpy(s_cfg_path, "rom.cfg");
 +    }
- #else
-     s_exe_dir[0] = '\0';  /* current dir */
-     strcpy(s_cfg_path, "rom.cfg");
-@@ -187,11 +206,44 @@ static int resolve_or_patch(const char *path, char *resolved, size_t resolved_sz
-     }
-     if (!s_patch_file[0]) { free(rom); return 0; }
- 
+@@ -189,0 +209,29 @@ static int resolve_or_patch(const char *path, char *resolved, size_t resolved_sz
 +    char patch_filename[260];
 +    snprintf(patch_filename, sizeof(patch_filename), "%s", s_patch_file);
 +    int expected_patch_index = 0;
@@ -167,34 +121,21 @@ index 5fb092f..2a57679 100644
 +    }
 +#endif
 +
-     char patch_path[600];
+@@ -191 +239 @@ static int resolve_or_patch(const char *path, char *resolved, size_t resolved_sz
 -    snprintf(patch_path, sizeof(patch_path), "%s%s", s_exe_dir, s_patch_file);
 +    snprintf(patch_path, sizeof(patch_path), "%s%s", s_exe_dir, patch_filename);
-     long psz = 0;
-     unsigned char *patch = load_file(patch_path, &psz);
+@@ -194 +242,5 @@ static int resolve_or_patch(const char *path, char *resolved, size_t resolved_sz
 -    if (!patch) { free(rom); return 0; }  /* no patch shipped → not patchable */
 +    if (!patch) {
 +        fprintf(stderr, "[Launcher] ROM patch not found: %s\n", patch_path);
 +        free(rom);
 +        return 0;
 +    }
- 
-     unsigned char *out = NULL; size_t out_len = 0; char err[160];
-     int rc = gb_bps_apply(patch, (size_t)psz, rom, (size_t)sz, &out, &out_len, err, sizeof(err));
-@@ -201,7 +253,8 @@ static int resolve_or_patch(const char *path, char *resolved, size_t resolved_sz
-         free(rom);
-         return 0;
-     }
+@@ -204 +256,2 @@ static int resolve_or_patch(const char *path, char *resolved, size_t resolved_sz
 -    if (!buffer_sha_matches(out, out_len, s_expected_sha256)) {
 +    if (expected_patch_index == 0 &&
 +        !buffer_sha_matches(out, out_len, s_expected_sha256)) {
-         fprintf(stderr, "[Launcher] patched ROM does not match expected build\n");
-         free(out); free(rom);
-         return 0;
-@@ -238,6 +291,22 @@ static int verify_rom(const char *path, char *resolved, size_t resolved_sz) {
-     uint32_t expected_single = (valid_count == 0) ? game_get_expected_crc32() : 0;
-     int have_crc = (valid_count > 0 && valid_list) || expected_single != 0;
- 
+@@ -240,0 +294,16 @@ static int verify_rom(const char *path, char *resolved, size_t resolved_sz) {
 +#if defined(GBRECOMP_APPLY_ROM_PATCH)
 +    /* This language's recompiled code was generated from a patched image,
 +     * while the launcher identifies the user's stock dump by CRC. Apply the
@@ -211,13 +152,7 @@ index 5fb092f..2a57679 100644
 +    }
 +#endif
 +
-     /* No CRC policy → SHA-256 exact-match, with optional BPS auto-patch. CRC
-      * hooks take precedence (multi-revision carts keep their valid-list). */
-     if (!have_crc) {
-@@ -292,6 +361,99 @@ static int verify_rom(const char *path, char *resolved, size_t resolved_sz) {
-     return 0;
- }
- 
+@@ -294,0 +364,93 @@ static int verify_rom(const char *path, char *resolved, size_t resolved_sz) {
 +static int extension_matches(const char *filename, const char *extension) {
 +    if (!filename || !extension || !extension[0]) return 0;
 +    const char *dot = strrchr(filename, '.');
@@ -311,29 +246,15 @@ index 5fb092f..2a57679 100644
 +    return out_path[0] != '\0';
 +}
 +
- const char *launcher_get_rom_path(void) {
-     if (s_rom_path[0]) return s_rom_path;
- 
 diff --git a/runtime/src/launcher_ui_seam.c b/runtime/src/launcher_ui_seam.c
 index 62a3b83..92e77ff 100644
 --- a/runtime/src/launcher_ui_seam.c
 +++ b/runtime/src/launcher_ui_seam.c
-@@ -6,9 +6,11 @@
- 
- #include "launcher_ui_seam.h"
- #include "game_extras.h"
+@@ -8,0 +9 @@
 +#include "launcher.h"
- 
- #include "recomp_launcher.h"   // recomp-ui C ABI
- #include "launcher_profile.h"  // launcher_profile_apply()
+@@ -11,0 +13 @@
 +#include "launcher_strings.h"  // language-selected launcher copy
- 
- #include <SDL.h>
- #include <stdint.h>
-@@ -118,6 +120,18 @@ static void seam_write_rom_cfg(const char* path, const char* rom) {
-     fclose(f);
- }
- 
+@@ -120,0 +123,12 @@ static void seam_write_rom_cfg(const char* path, const char* rom) {
 +#if defined(GBRECOMP_POKANTO_FIXED_ROM)
 +static void seam_show_rom_error(void) {
 +    const char* title = POKANTO_TEXT_ROM_MISSING_TITLE;
@@ -346,13 +267,7 @@ index 62a3b83..92e77ff 100644
 +}
 +#endif
 +
- /* ── the seam ─────────────────────────────────────────────────────────────── */
- 
- int gb_launcher_preboot(void) {
-@@ -131,6 +145,20 @@ int gb_launcher_preboot(void) {
-     seam_join(prefs_path,  sizeof(prefs_path),  exe_dir, "runtime_prefs.ini");
-     seam_join(romcfg_path, sizeof(romcfg_path), exe_dir, "rom.cfg");
- 
+@@ -133,0 +148,14 @@ int gb_launcher_preboot(void) {
 +#if defined(GBRECOMP_POKANTO_FIXED_ROM)
 +    /* Keep the working defaults even when the launcher is skipped. */
 +    seam_upsert_int(prefs_path, "audio.volume_percent", 100);
@@ -367,85 +282,1387 @@ index 62a3b83..92e77ff 100644
 +    seam_write_rom_cfg(romcfg_path, automatic_rom);
 +#endif
 +
-     /* "Skip launcher on boot": honor the persisted flag unless forced. */
-     if (seam_read_int(prefs_path, "launcher.skip", 0) != 0 &&
-         !(SDL_getenv("GBRECOMP_LAUNCHER") && SDL_getenv("GBRECOMP_LAUNCHER")[0] == '1')) {
-@@ -154,8 +182,8 @@ int gb_launcher_preboot(void) {
-         ls.screen_kind = seam_read_int(prefs_path, "video.palette", 0);
-     }
-     ls.enable_audio  = 1;
+@@ -157,2 +185,2 @@ int gb_launcher_preboot(void) {
 -    ls.audio_freq    = 32768;
 -    ls.volume        = seam_read_int(prefs_path, "audio.volume_percent", 100);
 +    ls.audio_freq    = 44100;
 +    ls.volume        = 100;
-     ls.widescreen    = seam_read_int(prefs_path, "video.widescreen", 0);
-     ls.player_src[0] = 1;   /* keyboard */
-     ls.skip_launcher = 0;
-@@ -166,7 +194,10 @@ int gb_launcher_preboot(void) {
-     const char* platform = game_get_platform();
-     launcher_profile_apply(platform && platform[0] ? platform : "gbc", &gi);
-     gi.name = game_get_name();
+@@ -169 +197,4 @@ int gb_launcher_preboot(void) {
 -    gi.region = "USA";
 +    gi.region = game_get_region();
 +#if defined(GBRECOMP_POKANTO_FIXED_ROM)
 +    gi.rom_selection_locked = 1;
 +#endif
-     /* The runtime derives the .sav name from the cart's save-id / header title,
-      * which isn't known until the ROM is loaded (after this preboot). Leave the
-      * SAVE row inert (no import/clear against a wrong file) rather than guess a
-@@ -213,10 +244,13 @@ int gb_launcher_preboot(void) {
-             fclose(rc);
-         }
-     }
+@@ -215,0 +247,3 @@ int gb_launcher_preboot(void) {
 +#if defined(GBRECOMP_POKANTO_FIXED_ROM)
 +    snprintf(initial_rom, sizeof(initial_rom), "%s", automatic_rom);
 +#endif
- 
-     char title[256];
+@@ -218,2 +252,2 @@ int gb_launcher_preboot(void) {
 -    snprintf(title, sizeof(title), "%s \xE2\x80\x94 Launcher",
 -             gi.name ? gi.name : "Game Boy");
 +    snprintf(title, sizeof(title), "%s \xE2\x80\x94 %s",
 +             gi.name ? gi.name : "Game Boy", POKANTO_TEXT_LAUNCHER_TITLE);
- 
-     char out_rom[1024];
-     out_rom[0] = '\0';
 diff --git a/runtime/src/platform_sdl.cpp b/runtime/src/platform_sdl.cpp
-index 465ef72..45fbb92 100644
+index 465ef72..a1b80e2 100644
 --- a/runtime/src/platform_sdl.cpp
 +++ b/runtime/src/platform_sdl.cpp
-@@ -32,7 +32,11 @@ extern "C" void gb_debug_server_set_context(GBContext *ctx);
- 
- #ifdef GB_HAS_SDL2
- #include <SDL.h>
+@@ -23,0 +24 @@ extern "C" {
++#include "game_extras.h"
+@@ -34,0 +36,3 @@ extern "C" void gb_debug_server_set_context(GBContext *ctx);
 +#if defined(__APPLE__)
 +#include <OpenGL/gl3.h>
 +#else
- #include <SDL_opengles2.h>
+@@ -35,0 +40 @@ extern "C" void gb_debug_server_set_context(GBContext *ctx);
 +#endif
- #include <algorithm>
- #include <atomic>
- #include <cctype>
-@@ -4746,10 +4750,15 @@ bool gb_platform_init(int scale) {
-         g_script_count == 0 && g_dump_count == 0 &&
-         g_dump_present_count == 0 && g_dump_cycle_count == 0 &&
-         !env_flag_enabled("GBRECOMP_NO_LAUNCHER")) {
+@@ -104,2 +108,0 @@ static GBPlatformTimingInfo g_last_timing = {};
+-/* Menu State */
+-static bool g_show_menu = false;
+@@ -107,3 +109,0 @@ static bool g_show_overlay = false;
+-#ifdef RECOMP_LAUNCHER
+-static RecompRuntimeUi* g_runtime_ui = NULL;
+-#endif
+@@ -280,2 +280 @@ typedef enum GBInputAction {
+-    GB_INPUT_ACTION_TOGGLE_MENU = 16,
+-    GB_INPUT_ACTION_COUNT = 17,
++    GB_INPUT_ACTION_COUNT = 16,
+@@ -355,0 +355,2 @@ static bool g_keyboard_binding_pressed[GB_INPUT_ACTION_COUNT][2] = {};
++static bool g_escape_as_b_pressed = false;
++static bool g_enter_as_start_pressed = false;
+@@ -383 +383,0 @@ static const char* g_input_action_names[GB_INPUT_ACTION_COUNT] = {
+-    "Toggle Menu",
+@@ -416 +415,0 @@ static float settings_ui_scale_for_size(const ImVec2& display_size);
+-static const char* controller_menu_hint_text(void);
+@@ -610,8 +608,0 @@ static bool platform_uses_app_storage_for_relative_paths(void) {
+-static const char* overlay_menu_hint_text(void) {
+-#if defined(__ANDROID__)
+-    return "Press Back, L3, or R3 for Menu";
+-#else
+-    return "Press ESC for Menu";
+-#endif
+-}
+-
+@@ -637,8 +627,0 @@ static float settings_ui_scale_for_size(const ImVec2& display_size) {
+-static const char* controller_menu_hint_text(void) {
+-#if defined(__ANDROID__)
+-    return "Guide, L3, or R3: Settings Menu";
+-#else
+-    return "Guide / Home: Settings Menu";
+-#endif
+-}
+-
+@@ -662 +645 @@ static const char* overlay_visibility_hint_text(void) {
+-    return "Use the settings menu or a shortcut binding to toggle the overlay";
++    return "Use F1 or a shortcut binding to toggle the overlay";
+@@ -1098 +1080,0 @@ static const char* input_action_config_name(GBInputAction action) {
+-        case GB_INPUT_ACTION_TOGGLE_MENU: return "toggle_menu";
+@@ -1121,0 +1104,2 @@ static void clear_all_binding_pressed_state(void) {
++    g_escape_as_b_pressed = false;
++    g_enter_as_start_pressed = false;
+@@ -1192 +1175,0 @@ static void set_default_input_bindings(void) {
+-    g_keyboard_bindings[GB_INPUT_ACTION_START][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_RETURN);
+@@ -1201 +1183,0 @@ static void set_default_input_bindings(void) {
+-    g_keyboard_bindings[GB_INPUT_ACTION_TOGGLE_MENU][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_F10);
+@@ -1221,2 +1202,0 @@ static void set_default_input_bindings(void) {
+-    g_controller_bindings[GB_INPUT_ACTION_TOGGLE_MENU][0] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_LEFTSTICK);
+-    g_controller_bindings[GB_INPUT_ACTION_TOGGLE_MENU][1] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_RIGHTSTICK);
+@@ -1636,0 +1617,5 @@ static bool input_action_is_pressed(GBInputAction action) {
++    if ((action == GB_INPUT_ACTION_B && g_escape_as_b_pressed) ||
++        (action == GB_INPUT_ACTION_START && g_enter_as_start_pressed)) {
++        return true;
++    }
++
+@@ -1692,4 +1676,0 @@ static void update_runtime_action_state(GBContext* ctx) {
+-                case GB_INPUT_ACTION_TOGGLE_MENU:
+-                    g_show_menu = !g_show_menu;
+-                    break;
+-
+@@ -1737,10 +1717,0 @@ static void update_effective_joypad_state(void) {
+-    /* While the in-game menu is up, hide all joypad activity from the
+-     * cart. The game keeps running (so NPCs walk, music plays, RTC
+-     * advances), but arrow keys / A / Start used to navigate the
+-     * menu don't bleed through and move the player or open the cart's
+-     * own menu. Active-low: 0xFF = nothing pressed. */
+-    if (g_show_menu) {
+-        g_joypad_dpad = 0xFF;
+-        g_joypad_buttons = 0xFF;
+-        return;
+-    }
+@@ -2619,121 +2589,0 @@ static void reset_runtime_control_defaults(void) {
+-#ifdef RECOMP_LAUNCHER
+-static const char* const g_runtime_scaling_choices[] = {
+-    "Pixel Perfect", "Aspect Fit", "Aspect Fill", "Stretch",
+-};
+-static const char* const g_runtime_color_choices[] = { "Off", "GBC", "GBA" };
+-static const RecompRuntimeUiItem g_runtime_extra_items[] = {
+-    { "gbc.scaling_mode", "Graphics", "Scaling mode",
+-      "Choose integer pixels, preserve/fill aspect, or stretch.",
+-      RECOMP_RUNTIME_UI_CHOICE, 0, 3, 1,
+-      g_runtime_scaling_choices, 4, NULL },
+-    { "gbc.color_correction", "Graphics", "Color correction",
+-      "Match raw output, the Game Boy Color LCD, or the GBA LCD.",
+-      RECOMP_RUNTIME_UI_CHOICE, 0, 2, 1,
+-      g_runtime_color_choices, 3, NULL },
+-    { RECOMP_RUNTIME_UI_KEY_LCD_GHOSTING, "Graphics", "LCD shader",
+-      "Simulate the response and subpixels of the original LCD.",
+-      RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, NULL, 0, NULL },
+-    { "gbc.advanced", "System", "Advanced settings",
+-      "Open Game Boy-specific palettes, borders, link, cheats, and controls.",
+-      RECOMP_RUNTIME_UI_ACTION, 0, 0, 0, NULL, 0, NULL },
+-};
+-
+-static int runtime_ui_get(void*, const RecompRuntimeUiItem* item, int* out) {
+-    if (!item || !out) return 0;
+-    if (strcmp(item->key, RECOMP_RUNTIME_UI_KEY_FULLSCREEN) == 0) *out = g_fullscreen_mode;
+-    else if (strcmp(item->key, RECOMP_RUNTIME_UI_KEY_WINDOW_SCALE) == 0) *out = g_scale;
+-    else if (strcmp(item->key, RECOMP_RUNTIME_UI_KEY_LINEAR_FILTER) == 0) *out = g_render_filter_mode == GB_RENDER_FILTER_LINEAR;
+-    else if (strcmp(item->key, RECOMP_RUNTIME_UI_KEY_AUDIO) == 0) *out = !g_audio_muted;
+-    else if (strcmp(item->key, RECOMP_RUNTIME_UI_KEY_VOLUME) == 0) *out = (int)std::min(g_audio_volume_percent, 100u);
+-    else if (strcmp(item->key, "gbc.scaling_mode") == 0) *out = (int)g_render_scaling_mode;
+-    else if (strcmp(item->key, "gbc.color_correction") == 0) *out = g_color_correction;
+-    else if (strcmp(item->key, RECOMP_RUNTIME_UI_KEY_LCD_GHOSTING) == 0) {
+-        const int active = g_shader_pipeline ? gb_shader_pipeline_active(g_shader_pipeline) : -1;
+-        const char* name = active >= 0 ? gb_shader_pipeline_name(g_shader_pipeline, active) : NULL;
+-        *out = name && strcmp(name, "lcd") == 0;
+-    } else return 0;
+-    return 1;
+-}
+-
+-static int runtime_ui_set(void*, const RecompRuntimeUiItem* item, int value) {
+-    if (!item) return 0;
+-    if (strcmp(item->key, RECOMP_RUNTIME_UI_KEY_FULLSCREEN) == 0) set_fullscreen_mode(value);
+-    else if (strcmp(item->key, RECOMP_RUNTIME_UI_KEY_WINDOW_SCALE) == 0) {
+-        g_scale = std::max(1, std::min(value, 8));
+-        apply_window_scale_preset();
+-    } else if (strcmp(item->key, RECOMP_RUNTIME_UI_KEY_LINEAR_FILTER) == 0) {
+-        g_render_filter_mode = value ? GB_RENDER_FILTER_LINEAR : GB_RENDER_FILTER_NEAREST;
+-        update_render_filter();
+-    } else if (strcmp(item->key, RECOMP_RUNTIME_UI_KEY_AUDIO) == 0) {
+-        g_audio_muted = !value;
+-        reset_audio_output_buffer(true);
+-    } else if (strcmp(item->key, RECOMP_RUNTIME_UI_KEY_VOLUME) == 0) {
+-        g_audio_volume_percent = (uint32_t)std::max(0, std::min(value, 100));
+-    } else if (strcmp(item->key, "gbc.scaling_mode") == 0) {
+-        g_render_scaling_mode = (GBRenderScalingMode)std::max(0, std::min(value, 3));
+-        update_game_viewport();
+-    } else if (strcmp(item->key, "gbc.color_correction") == 0) {
+-        g_color_correction = std::max(0, std::min(value, 2));
+-        set_active_game_pref_int("color_correction", g_color_correction);
+-    } else if (strcmp(item->key, RECOMP_RUNTIME_UI_KEY_LCD_GHOSTING) == 0) {
+-        if (!g_shader_pipeline || !gb_shader_pipeline_set_active_by_name(
+-                g_shader_pipeline, value ? "lcd" : "sharp")) return 0;
+-        g_active_shader_pref = value ? "lcd" : "sharp";
+-        set_active_game_pref("shader", g_active_shader_pref);
+-    } else return 0;
+-    return 1;
+-}
+-
+-static int runtime_ui_action(void*, const RecompRuntimeUiItem* item) {
+-    if (!item) return 0;
+-    if (strcmp(item->key, RECOMP_RUNTIME_UI_KEY_RESUME) == 0) {
+-        recomp_runtime_ui_close(g_runtime_ui);
+-    } else if (strcmp(item->key, RECOMP_RUNTIME_UI_KEY_SAVE_STATE) == 0) {
+-        return save_savestate_slot(g_registered_ctx, g_savestate_slot);
+-    } else if (strcmp(item->key, RECOMP_RUNTIME_UI_KEY_LOAD_STATE) == 0) {
+-        return load_savestate_slot(g_registered_ctx, g_savestate_slot);
+-    } else if (strcmp(item->key, "gbc.advanced") == 0) {
+-        recomp_runtime_ui_close(g_runtime_ui);
+-        g_show_menu = true;
+-    } else return 0;
+-    return 1;
+-}
+-
+-static int runtime_ui_enabled(void*, const RecompRuntimeUiItem* item) {
+-    if (strcmp(item->key, RECOMP_RUNTIME_UI_KEY_WINDOW_SCALE) == 0)
+-        return g_fullscreen_mode == 0;
+-    if (strcmp(item->key, "gbc.color_correction") == 0)
+-        return g_active_hardware_mode_pref == GB_HARDWARE_MODE_CGB ||
+-               g_active_hardware_mode_pref == GB_HARDWARE_MODE_GBA;
+-    if (strcmp(item->key, RECOMP_RUNTIME_UI_KEY_LCD_GHOSTING) == 0)
+-        return g_shader_pipeline != NULL;
+-    return 1;
+-}
+-
+-static void runtime_ui_save(void*) { save_runtime_preferences(); }
+-
+-static void create_runtime_ui(void) {
+-    RecompRuntimeUiStandardConfig config = {};
+-    config.menu.title = "Game Boy Recompiled";
+-    config.menu.subtitle = "Runtime settings";
+-    config.menu.theme = "gbc";
+-    config.menu.accept_label = "A / Enter";
+-    config.menu.back_label = "B / Esc";
+-    config.menu.callbacks = { NULL, runtime_ui_get, runtime_ui_set,
+-                              runtime_ui_action, runtime_ui_enabled,
+-                              runtime_ui_save, NULL };
+-    config.features = RECOMP_RUNTIME_UI_STANDARD_FULLSCREEN |
+-                      RECOMP_RUNTIME_UI_STANDARD_WINDOW_SCALE |
+-                      RECOMP_RUNTIME_UI_STANDARD_LINEAR_FILTER |
+-                      RECOMP_RUNTIME_UI_STANDARD_AUDIO |
+-                      RECOMP_RUNTIME_UI_STANDARD_VOLUME |
+-                      RECOMP_RUNTIME_UI_STANDARD_RESUME |
+-                      RECOMP_RUNTIME_UI_STANDARD_SAVE_STATE |
+-                      RECOMP_RUNTIME_UI_STANDARD_LOAD_STATE;
+-    config.window_scale_max = 8;
+-    config.extra_items = g_runtime_extra_items;
+-    config.extra_item_count = sizeof(g_runtime_extra_items) / sizeof(g_runtime_extra_items[0]);
+-    g_runtime_ui = recomp_runtime_ui_create_standard(&config);
+-}
+-#endif
+-
+@@ -3113,1131 +2963 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+-    if (g_show_menu) {
+-        const float ui_scale = imgui_io.FontGlobalScale;
+-        const float footer_height = ImGui::GetFrameHeightWithSpacing() *
+-                                    (g_launcher_return_enabled ? 3.8f : 3.0f);
+-
+-        ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiCond_Always);
+-        ImGui::SetNextWindowSize(imgui_io.DisplaySize, ImGuiCond_Always);
+-        ImGui::SetNextWindowBgAlpha(0.96f);
+-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(18.0f * ui_scale, 16.0f * ui_scale));
+-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(14.0f * ui_scale, 10.0f * ui_scale));
+-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.0f * ui_scale, 10.0f * ui_scale));
+-        ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 18.0f * ui_scale);
+-        ImGui::Begin("GameBoy Recompiled",
+-                     &g_show_menu,
+-                     ImGuiWindowFlags_NoDecoration |
+-                         ImGuiWindowFlags_NoMove |
+-                         ImGuiWindowFlags_NoResize |
+-                         ImGuiWindowFlags_NoSavedSettings |
+-                         ImGuiWindowFlags_NoCollapse);
+-        ImGui::Text("GameBoy Recompiled");
+-        ImGui::TextDisabled("Settings");
+-        ImGui::Separator();
+-        ImGui::BeginChild("SettingsScroll", ImVec2(0.0f, -footer_height), false, ImGuiWindowFlags_NavFlattened);
+-
+-        /* ============================================================
+-         * Front-of-house: things you reach for during normal play.
+-         * Each subgroup is tagged with a small dim heading so the menu
+-         * doesn't read as one undifferentiated block.
+-         * ========================================================== */
+-
+-        ImGui::TextDisabled("Playback");
+-        if (ImGui::SliderInt("Speed %", &g_speed_percent, 10, 500, "%d", ImGuiSliderFlags_NoInput)) {
+-            reset_audio_output_buffer(true);
+-        }
+-        if (ImGui::Button("Reset Speed")) {
+-            g_speed_percent = 100;
+-            g_max_speed_mode = false;
+-            reset_audio_output_buffer(true);
+-        }
+-        ImGui::SameLine();
+-        ImGui::TextDisabled("Effective: %d%%", effective_speed_percent());
+-        if (g_fast_forward_active) {
+-            ImGui::TextDisabled("Fast forward shortcut is active.");
+-        } else if (g_max_speed_mode) {
+-            ImGui::TextDisabled("Max speed shortcut is active.");
+-        }
+-        if (ImGui::Checkbox("Show FPS", &g_show_fps)) {
+-            save_runtime_preferences();
+-        }
+-        static const char* const THEME_NAMES[] = { "Classic", "Light", "Dark" };
+-        if (ImGui::BeginCombo("Menu Theme", THEME_NAMES[g_imgui_theme])) {
+-            for (int i = 0; i < 3; i++) {
+-                bool selected = (i == g_imgui_theme);
+-                if (ImGui::Selectable(THEME_NAMES[i], selected)) {
+-                    g_imgui_theme = i;
+-                    apply_imgui_theme(g_imgui_theme);
+-                    save_runtime_preferences();
+-                }
+-                if (selected) ImGui::SetItemDefaultFocus();
+-            }
+-            ImGui::EndCombo();
+-        }
+-
+-        ImGui::Spacing();
+-        ImGui::TextDisabled("Audio");
+-        if (ImGui::Checkbox("Mute", &g_audio_muted)) {
+-            save_runtime_preferences();
+-        }
+-        int audio_volume_percent = (int)g_audio_volume_percent;
+-        if (ImGui::SliderInt("Master Volume (%)", &audio_volume_percent, 0, 200, "%d", ImGuiSliderFlags_NoInput)) {
+-            g_audio_volume_percent = (uint32_t)audio_volume_percent;
+-            save_runtime_preferences();
+-        }
+-
+-        ImGui::Spacing();
+-        ImGui::TextDisabled("Look");
+-
+-        /* Hardware Mode: per-game pref controlling how the cart's
+-         * boot-time mode resolution shakes out. The cart's actual mode
+-         * is locked at gb_context_load_rom time, so changes here only
+-         * apply on the next launch. The dropdown shows the cart's
+-         * resolved default until the user picks something else. */
+-        if (!g_active_game_id.empty()) {
+-            static const char* hw_mode_labels[] = { "DMG", "SGB", "CGB", "GBA" };
+-            static const GBHardwareModePref hw_mode_values[] = {
+-                GB_HARDWARE_MODE_DMG, GB_HARDWARE_MODE_SGB,
+-                GB_HARDWARE_MODE_CGB, GB_HARDWARE_MODE_GBA,
+-            };
+-            int hw_mode_idx = 0;
+-            for (int i = 0; i < (int)IM_ARRAYSIZE(hw_mode_values); i++) {
+-                if (g_active_hardware_mode_pref == hw_mode_values[i]) { hw_mode_idx = i; break; }
+-            }
+-            if (ImGui::Combo("Hardware Mode", &hw_mode_idx,
+-                             hw_mode_labels, IM_ARRAYSIZE(hw_mode_labels))) {
+-                g_active_hardware_mode_pref = hw_mode_values[hw_mode_idx];
+-                g_per_game_prefs[g_active_game_id]["hardware_mode"] =
+-                    hardware_mode_pref_to_string(g_active_hardware_mode_pref);
+-                save_runtime_preferences();
+-            }
+-            ImGui::SameLine();
+-            ImGui::TextDisabled("(restart needed)");
+-        }
+-
+-        /* Custom Palette: 4-color framebuffer post-remap that looks for
+-         * the DMG-green values and rewrites them. Only meaningful when
+-         * the PPU is actually emitting DMG-green pixels — in CGB or
+-         * GBA hardware mode the PPU uses CGB palette RAM so the
+-         * values never match and the remap is a silent no-op. */
+-        if (g_active_hardware_mode_pref != GB_HARDWARE_MODE_CGB &&
+-            g_active_hardware_mode_pref != GB_HARDWARE_MODE_GBA) {
+-            if (ImGui::Combo("Palette", &g_palette_idx, g_palette_names, IM_ARRAYSIZE(g_palette_names))) {
+-                set_active_game_pref_int("palette", g_palette_idx);
+-                save_runtime_preferences();
+-            }
+-        }
+-
+-        /* CGB BIOS Palette: only relevant when a DMG cart is running on
+-         * CGB hardware. Default "Auto" runs the cart's title-hash
+-         * through the BIOS LUT (Nintendo-curated palette for ~80 known
+-         * games, "Brown" default for the rest); the rest force one of
+-         * the 12 button-combo presets a real CGB picks when you hold
+-         * a button at boot. */
+-        if ((g_active_hardware_mode_pref == GB_HARDWARE_MODE_CGB ||
+-             g_active_hardware_mode_pref == GB_HARDWARE_MODE_GBA) &&
+-            g_registered_ctx &&
+-            !g_registered_ctx->config.cartridge_supports_cgb) {
+-            /* Color names follow the canonical CGB BIOS labels (Brown,
+-             * Pastel Mix, Inverted, etc.) — the button combo each
+-             * corresponds to on real hardware is shown alongside so
+-             * the mapping is unambiguous. */
+-            static const char* cgb_pal_names[] = {
+-                "Auto",
+-                "Green (Right)",        "Blue (Left)",
+-                "Brown (Up)",           "Pastel Mix (Down)",
+-                "Dark Green (Right+A)", "Dark Blue (Left+A)",
+-                "Red (Up+A)",           "Orange (Down+A)",
+-                "Inverted (Right+B)",   "Grayscale (Left+B)",
+-                "Dark Brown (Up+B)",    "Yellow (Down+B)",
+-            };
+-            int cgb_pal_idx = g_registered_ctx->cgb_compat_palette_override + 1;
+-            if (cgb_pal_idx < 0 || cgb_pal_idx >= (int)IM_ARRAYSIZE(cgb_pal_names)) {
+-                cgb_pal_idx = 0;
+-            }
+-            if (ImGui::Combo("CGB BIOS Palette", &cgb_pal_idx,
+-                             cgb_pal_names, IM_ARRAYSIZE(cgb_pal_names))) {
+-                g_registered_ctx->cgb_compat_palette_override = cgb_pal_idx - 1;
+-                if (g_registered_ctx->ppu) {
+-                    ppu_reload_cgb_compat_palette((GBPPU*)g_registered_ctx->ppu,
+-                                                  g_registered_ctx);
+-                }
+-                set_active_game_pref_int("cgb_palette",
+-                                         g_registered_ctx->cgb_compat_palette_override);
+-                save_runtime_preferences();
+-            }
+-        }
+-
+-        /* Color Correction: only visible in CGB / GBA hardware modes
+-         * (DMG and SGB output goes through different paths). Off is
+-         * the raw PPU output; GBC matches what an original CGB LCD
+-         * would show; GBA compensates for the AGB LCD's washed-out
+-         * look. Defaults auto-pick a sensible mode based on hardware
+-         * mode at game-load time. */
+-        if (g_active_hardware_mode_pref == GB_HARDWARE_MODE_CGB ||
+-            g_active_hardware_mode_pref == GB_HARDWARE_MODE_GBA) {
+-            static const char* cc_names[] = { "Off", "GBC", "GBA" };
+-            if (ImGui::Combo("Color Correction", &g_color_correction,
+-                             cc_names, IM_ARRAYSIZE(cc_names))) {
+-                set_active_game_pref_int("color_correction", g_color_correction);
+-                save_runtime_preferences();
+-            }
+-        }
+-
+-        /* Post-process shader (sharp / smooth / lcd / dmg-green plus any
+-         * shaders/<name>.frag.glsl on disk). Active selection persists
+-         * in runtime_prefs.ini. Reload re-compiles every entry — handy
+-         * when iterating on a custom shader without rebuilding. */
+-        if (g_shader_pipeline) {
+-            const int count = gb_shader_pipeline_count(g_shader_pipeline);
+-            int active = gb_shader_pipeline_active(g_shader_pipeline);
+-            if (active < 0) active = 0;
+-            const char* preview = gb_shader_pipeline_name(g_shader_pipeline, active);
+-            if (ImGui::BeginCombo("Shader", preview ? preview : "(none)")) {
+-                for (int i = 0; i < count; i++) {
+-                    const char* name = gb_shader_pipeline_name(g_shader_pipeline, i);
+-                    bool selected = (i == active);
+-                    if (ImGui::Selectable(name, selected)) {
+-                        if (gb_shader_pipeline_set_active(g_shader_pipeline, i)) {
+-                            g_active_shader_pref = name ? name : "";
+-                            set_active_game_pref("shader", g_active_shader_pref);
+-                            save_runtime_preferences();
+-                        }
+-                    }
+-                    if (selected) ImGui::SetItemDefaultFocus();
+-                }
+-                ImGui::EndCombo();
+-            }
+-        }
+-
+-        /* Three optional toggles laid out inline. Each only appears
+-         * when it's actually applicable: SGB Colors only when the
+-         * engine is on AND the cart has actually issued a PAL/ATTR
+-         * command this session (covers e.g. mono LA which ships
+-         * SGB-flagless and never sends color commands — toggling
+-         * "SGB Colors" there would be a no-op); SGB Cart Border only
+-         * when the engine has decoded one (or a cache loaded); Custom
+-         * PNG Border only when there's at least one PNG in borders/.
+-         * Hiding the irrelevant ones keeps the menu honest. */
+-        const bool show_sgb_colors_toggle =
+-            (g_active_hardware_mode_pref == GB_HARDWARE_MODE_SGB) &&
+-            g_registered_ctx && g_registered_ctx->sgb &&
+-            gb_sgb_palettes_active((GBSgbState*)g_registered_ctx->sgb);
+-        const bool show_sgb_border_toggle = g_sgb_cart_border_texture != 0;
+-        const bool show_custom_border_toggle = !g_border_files.empty();
+-        bool placed_any = false;
+-
+-        if (show_sgb_colors_toggle) {
+-            placed_any = true;
+-            if (ImGui::Checkbox("SGB Colors", &g_sgb_colors_pref)) {
+-                if (g_registered_ctx && g_registered_ctx->sgb) {
+-                    gb_sgb_set_display_palettes((GBSgbState*)g_registered_ctx->sgb,
+-                                                g_sgb_colors_pref);
+-                }
+-                set_active_game_pref_bool("sgb_colors", g_sgb_colors_pref);
+-                save_runtime_preferences();
+-            }
+-        }
+-        if (show_sgb_border_toggle) {
+-            if (placed_any) ImGui::SameLine();
+-            placed_any = true;
+-            if (ImGui::Checkbox("SGB Border", &g_sgb_cart_border_enabled)) {
+-                if (g_registered_ctx && g_registered_ctx->sgb) {
+-                    gb_sgb_set_display_border((GBSgbState*)g_registered_ctx->sgb,
+-                                              g_sgb_cart_border_enabled);
+-                }
+-                apply_window_scale_preset();
+-                set_active_game_pref_bool("sgb_border", g_sgb_cart_border_enabled);
+-                save_runtime_preferences();
+-            }
+-        }
+-        if (show_custom_border_toggle) {
+-            if (placed_any) ImGui::SameLine();
+-            placed_any = true;
+-            if (ImGui::Checkbox("Custom Border", &g_border_enabled)) {
+-                apply_border_change();
+-                set_active_game_pref_bool("custom_border", g_border_enabled);
+-                save_runtime_preferences();
+-            }
+-        }
+-
+-        /* Custom-border picker. Only shown when at least one PNG is
+-         * present in the borders/ folder. */
+-        if (show_custom_border_toggle) {
+-            const bool combo_enabled = g_border_enabled;
+-            if (!combo_enabled) ImGui::BeginDisabled();
+-            const int count = (int)g_border_files.size();
+-            if (g_border_idx < 0 || g_border_idx >= count) g_border_idx = 0;
+-            const char* preview = (count > 0)
+-                ? g_border_files[g_border_idx].c_str() : "(none)";
+-            if (ImGui::BeginCombo("Border", preview)) {
+-                for (int i = 0; i < count; i++) {
+-                    bool selected = (i == g_border_idx);
+-                    if (ImGui::Selectable(g_border_files[i].c_str(), selected)) {
+-                        if (i != g_border_idx) {
+-                            g_border_idx = i;
+-                            apply_border_change();
+-                            set_active_game_pref("custom_border_file",
+-                                                 g_border_files[i]);
+-                            save_runtime_preferences();
+-                        }
+-                    }
+-                    if (selected) ImGui::SetItemDefaultFocus();
+-                }
+-                ImGui::EndCombo();
+-            }
+-            if (!combo_enabled) ImGui::EndDisabled();
+-        } else {
+-            ImGui::PushTextWrapPos(0.0f);
+-            ImGui::TextDisabled("Drop 256x224 PNGs into a borders/ folder next to the executable or working directory, then restart for a custom screen border.");
+-            ImGui::PopTextWrapPos();
+-        }
+-
+-        /* Savestates */
+-        ImGui::Spacing();
+-        ImGui::TextDisabled("Savestates");
+-        int savestate_slot = g_savestate_slot + 1;
+-        if (ImGui::SliderInt("Active Slot", &savestate_slot, 1, GB_SAVESTATE_SLOT_COUNT, "%d", ImGuiSliderFlags_NoInput)) {
+-            g_savestate_slot = savestate_slot - 1;
+-            save_runtime_preferences();
+-        }
+-        if (ImGui::Button("Save State (F5)")) {
+-            save_savestate_slot(g_registered_ctx, g_savestate_slot);
+-        }
+-        ImGui::SameLine();
+-        if (ImGui::Button("Load State (F8)")) {
+-            load_savestate_slot(g_registered_ctx, g_savestate_slot);
+-        }
+-        ImGui::SameLine();
+-        if (ImGui::Button("Delete Slot")) {
+-            delete_savestate_slot(g_registered_ctx, g_savestate_slot);
+-        }
+-        {
+-            std::string savestate_path;
+-            const bool slot_exists = savestate_slot_exists(g_registered_ctx, g_savestate_slot, &savestate_path);
+-            ImGui::TextDisabled("Slot %d: %s", g_savestate_slot + 1, slot_exists ? "Present" : "Empty");
+-        }
+-        if (!g_savestate_status.empty()) {
+-            ImGui::TextWrapped("%s", g_savestate_status.c_str());
+-        }
+-
+-#ifdef GBRT_HAVE_GBCAM
+-        /* Game Boy Camera device picker — only compiled in when the gbrt
+-         * was built with GBRT_ENABLE_GBCAM, and only shown for carts that
+-         * actually have the MBC $FC webcam hardware. */
+-        if (g_registered_ctx && g_registered_ctx->mbc_type == 0xFC) {
+-            ImGui::Spacing();
+-            ImGui::TextDisabled("Camera");
+-            static GBCamDevice cam_devs[16];
+-            static int cam_count = -1;       /* -1 = not enumerated yet */
+-            static int cam_selected_idx = -1;
+-            if (cam_count < 0) {
+-                cam_count = gbcam_enumerate_devices(cam_devs, 16);
+-                /* Sync the dropdown selection with whatever the backend
+-                 * currently has open (env-var, default, or per-game pref). */
+-                const char* current = gbcam_current_device();
+-                for (int i = 0; i < cam_count; i++) {
+-                    if (strcmp(cam_devs[i].path, current) == 0) {
+-                        cam_selected_idx = i;
+-                        break;
+-                    }
+-                }
+-            }
+-            if (cam_count == 0) {
+-                ImGui::TextDisabled("No video devices detected.");
+-            } else {
+-                /* Format each device's label as "<label> [<path>]". */
+-                static const char* cam_combo_items[16];
+-                static char cam_combo_buf[16][160];
+-                for (int i = 0; i < cam_count; i++) {
+-                    snprintf(cam_combo_buf[i], sizeof(cam_combo_buf[i]),
+-                             "%s  [%s]", cam_devs[i].label, cam_devs[i].path);
+-                    cam_combo_items[i] = cam_combo_buf[i];
+-                }
+-                int prev = cam_selected_idx;
+-                if (ImGui::Combo("Device", &cam_selected_idx, cam_combo_items, cam_count)) {
+-                    if (cam_selected_idx != prev && cam_selected_idx >= 0 &&
+-                        cam_selected_idx < cam_count) {
+-                        gbcam_close();
+-                        gbcam_open(cam_devs[cam_selected_idx].path);
+-                        set_active_game_pref("camera_device",
+-                                             cam_devs[cam_selected_idx].path);
+-                        save_runtime_preferences();
+-                    }
+-                }
+-            }
+-        }
+-#endif
+-
+-        ImGui::Spacing();
+-        ImGui::Separator();
+-
+-        /* ============================================================
+-         * Cheats: libretro .cht files dropped into cheats/<game_id>/
+-         * are loaded on cart launch. GameShark codes apply per-frame
+-         * via gb_cheats_tick(); Game Genie codes patch ROM at
+-         * toggle-on and restore at toggle-off. Cart-agnostic -- any
+-         * Game Boy game in the libretro database works.
+-         * ========================================================== */
+-        /* Always render the Cheats header so the surrounding
+-         * separators have something to bracket and the menu's
+-         * vertical rhythm stays consistent across all carts. When
+-         * expanded, the header either shows the full cheat list
+-         * (a .cht file was loaded) or a brief hint pointing the
+-         * user at the cheats/ folder. */
+-        if (ImGui::CollapsingHeader("Cheats")) {
+-            if (gb_cheats_count() == 0) {
+-                ImGui::TextDisabled(
+-                    "No .cht files found in cheats/%s/.\n"
+-                    "Drop a libretro-database .cht file there and relaunch.",
+-                    g_active_game_id.c_str());
+-            } else {
+-            static char cheat_filter[64] = "";
+-            static int  cheat_page = 0;
+-            const int   cheats_per_page = 10;
+-
+-            int total  = gb_cheats_count();
+-            int active = 0;
+-            for (int i = 0; i < total; i++) {
+-                if (gb_cheats_get(i)->enabled) active++;
+-            }
+-            ImGui::TextDisabled("Loaded %d cheats from cheats/%s/  (active: %d)",
+-                                total, g_active_game_id.c_str(), active);
+-            if (ImGui::InputText("Search##cheats",
+-                                 cheat_filter, sizeof(cheat_filter))) {
+-                /* Reset to page 1 on filter change so the user isn't
+-                 * stranded on a page that no longer has matches. */
+-                cheat_page = 0;
+-            }
+-            ImGui::SameLine();
+-            if (ImGui::Button("Disable All##cheats")) {
+-                gb_cheats_disable_all(g_registered_ctx);
+-            }
+-
+-            /* Lower-case the filter once per frame for case-insensitive
+-             * substring matching against descriptions. */
+-            char filter_lower[64];
+-            int fi = 0;
+-            for (; cheat_filter[fi] && fi < (int)sizeof(filter_lower) - 1; fi++) {
+-                char c = cheat_filter[fi];
+-                filter_lower[fi] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c;
+-            }
+-            filter_lower[fi] = '\0';
+-
+-            /* Two-pass render. First pass: collect filtered indices
+-             * into a stack buffer (one int per cheat -- cheap even
+-             * at the 2048 cap). Second pass: render the page slice.
+-             *
+-             * Pagination beats a tall scrollable child here because
+-             * focus flows naturally through 12 widgets and exits
+-             * onto the next menu row -- no trap. */
+-            int filtered_indices[GB_CHEAT_MAX_ENTRIES];
+-            int filtered_count = 0;
+-            for (int i = 0; i < total; i++) {
+-                const GBCheat* c = gb_cheats_get(i);
+-                if (!c || c->op_count == 0 || c->description[0] == '\0') continue;
+-                if (filter_lower[0]) {
+-                    char desc_lower[GB_CHEAT_DESC_MAX];
+-                    int di = 0;
+-                    for (; c->description[di] &&
+-                           di < (int)sizeof(desc_lower) - 1; di++) {
+-                        char ch = c->description[di];
+-                        desc_lower[di] =
+-                            (ch >= 'A' && ch <= 'Z') ? (char)(ch + 32) : ch;
+-                    }
+-                    desc_lower[di] = '\0';
+-                    if (!strstr(desc_lower, filter_lower)) continue;
+-                }
+-                filtered_indices[filtered_count++] = i;
+-            }
+-
+-            int page_count =
+-                (filtered_count + cheats_per_page - 1) / cheats_per_page;
+-            if (page_count < 1) page_count = 1;
+-            if (cheat_page >= page_count) cheat_page = page_count - 1;
+-            if (cheat_page < 0) cheat_page = 0;
+-
+-            int start = cheat_page * cheats_per_page;
+-            int end   = start + cheats_per_page;
+-            if (end > filtered_count) end = filtered_count;
+-            for (int j = start; j < end; j++) {
+-                int i = filtered_indices[j];
+-                const GBCheat* c = gb_cheats_get(i);
+-                bool on = c->enabled;
+-                ImGui::PushID(i);
+-                if (ImGui::Checkbox(c->description, &on)) {
+-                    gb_cheats_set_enabled(g_registered_ctx, i, on);
+-                }
+-                /* Edit button opens a popup with per-op value
+-                 * editors. Useful for "modifier" cheats whose .cht
+-                 * value byte is a placeholder (e.g. "Rival Name
+-                 * Mod Slot N" ships value $50 -- the name-terminator
+-                 * -- so the user can plug in the actual char byte). */
+-                ImGui::SameLine();
+-                if (ImGui::Button("...##cheat_edit")) {
+-                    ImGui::OpenPopup("cheat_editor");
+-                }
+-                if (ImGui::BeginPopup("cheat_editor")) {
+-                    ImGui::TextDisabled("%s", c->description);
+-                    ImGui::Separator();
+-                    for (int k = 0; k < c->op_count; k++) {
+-                        char val_buf[8];
+-                        snprintf(val_buf, sizeof(val_buf), "%02X",
+-                                 c->ops[k].value);
+-                        ImGui::PushID(k);
+-                        ImGui::SetNextItemWidth(60.0f);
+-                        if (ImGui::InputText("Value##op",
+-                                             val_buf, sizeof(val_buf),
+-                                             ImGuiInputTextFlags_CharsHexadecimal |
+-                                             ImGuiInputTextFlags_CharsUppercase)) {
+-                            long v = strtol(val_buf, NULL, 16);
+-                            if (v >= 0 && v <= 255) {
+-                                gb_cheats_set_op_value(g_registered_ctx,
+-                                                       i, k, (uint8_t)v);
+-                            }
+-                        }
+-                        ImGui::SameLine();
+-                        const char* kind = (c->ops[k].type ==
+-                                            GB_CHEAT_OP_GAMESHARK)
+-                                           ? "RAM" : "ROM";
+-                        ImGui::TextDisabled("at $%04X (%s)",
+-                                            c->ops[k].address, kind);
+-                        ImGui::PopID();
+-                    }
+-                    ImGui::Separator();
+-                    if (ImGui::Button("Close##cheat_editor")) {
+-                        ImGui::CloseCurrentPopup();
+-                    }
+-                    ImGui::EndPopup();
+-                }
+-                ImGui::PopID();
+-            }
+-            if (filtered_count == 0) {
+-                ImGui::TextDisabled("(no matches)");
+-            }
+-
+-            ImGui::Spacing();
+-            if (ImGui::Button("< Prev##cheat_page") && cheat_page > 0) {
+-                cheat_page--;
+-            }
+-            ImGui::SameLine();
+-            ImGui::Text("Page %d / %d   (%d match%s)",
+-                        cheat_page + 1, page_count,
+-                        filtered_count, filtered_count == 1 ? "" : "es");
+-            ImGui::SameLine();
+-            if (ImGui::Button("Next >##cheat_page") &&
+-                cheat_page < page_count - 1) {
+-                cheat_page++;
+-            }
+-            }
+-        }
+-
+-        ImGui::Spacing();
+-        ImGui::Separator();
+-
+-        /* ============================================================
+-         * Network: identity, LAN auto-discovery, direct host:port join,
+-         * and rendezvous-server (relay) match-making. The actual link
+-         * traffic always rides serial_link.{c,h}; this section is just
+-         * the different ways of finding a peer.
+-         * ========================================================== */
+-        if (ImGui::CollapsingHeader("Network")) {
+-            const float lan_ui_scale = imgui_io.FontGlobalScale;
+-
+-            /* Keep relay status flags in sync with the underlying link
+-             * state so a dropped connection or stopped listener flips
+-             * the labels back to "Not hosting" / "Not joined". */
+-            if (!g_link_listening) g_relay_hosting = false;
+-            if (!gb_serial_link_is_ready()) g_relay_joined = false;
+-
+-            /* Status line at the top so you always know where you stand. */
+-            if (gb_serial_link_is_ready()) {
+-                ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "Link active (BGB v1.4)");
+-                if (ImGui::Button("Disconnect")) {
+-                    gb_serial_link_shutdown();
+-                    g_link_listening = false;
+-                    g_relay_hosting = false;
+-                    g_relay_joined = false;
+-                    g_link_status_text.clear();
+-                }
+-            } else if (g_link_listening) {
+-                ImGui::TextDisabled("Listening on TCP :%d - waiting for peer", g_link_port_pref);
+-            } else if (!g_link_status_text.empty()) {
+-                ImGui::TextDisabled("%s", g_link_status_text.c_str());
+-            }
+-
+-            ImGui::Spacing();
+-            ImGui::TextDisabled("You");
+-            if (ImGui::InputText("Nickname", g_link_nickname_edit, sizeof(g_link_nickname_edit),
+-                                 ImGuiInputTextFlags_EnterReturnsTrue)) {
+-                gb_lan_set_self_nickname(g_link_nickname_edit);
+-            }
+-            ImGui::SameLine();
+-            if (ImGui::Button("Apply")) {
+-                gb_lan_set_self_nickname(g_link_nickname_edit);
+-            }
+-            ImGui::TextDisabled("UUID: %s", gb_lan_self_uuid());
+-
+-            ImGui::Spacing();
+-            ImGui::TextDisabled("Local network");
+-            bool lan_on = g_lan_enabled_pref;
+-            if (ImGui::Checkbox("Auto-discover peers", &lan_on)) {
+-                gb_lan_set_enabled(lan_on);
+-                /* If turning on failed (no usable network interface, UDP
+-                 * port already taken), gb_lan_set_enabled returns
+-                 * silently and the engine stays off. Reflect the actual
+-                 * state in our pref + show why so the user isn't left
+-                 * staring at a forever-empty peer list. */
+-                bool actual = gb_lan_is_enabled();
+-                g_lan_enabled_pref = actual;
+-                if (lan_on && !actual) {
+-                    g_link_status_text =
+-                        "Couldn't open the LAN discovery socket. Are you "
+-                        "online and is UDP :8766 free?";
+-                } else {
+-                    g_link_status_text.clear();
+-                }
+-                save_runtime_preferences();
+-            }
+-            ImGui::TextDisabled("Broadcasts your nickname on UDP :8766. Off by default.");
+-
+-            int net_port = g_link_port_pref;
+-            if (ImGui::InputInt("My TCP port", &net_port, 1, 100, ImGuiInputTextFlags_EnterReturnsTrue)) {
+-                if (net_port > 0 && net_port < 65536) {
+-                    g_link_port_pref = net_port;
+-                    gb_lan_set_advertised_port((uint16_t)net_port);
+-                    save_runtime_preferences();
+-                }
+-            }
+-            if (!g_link_listening) {
+-                if (ImGui::Button("Host (start listening)")) {
+-                    if (gb_serial_link_start_listen((uint16_t)g_link_port_pref)) {
+-                        g_link_listening = true;
+-                        g_link_status_text = "Listening, waiting for peer...";
+-                    } else {
+-                        g_link_status_text = "Failed to start listener (port in use?)";
+-                    }
+-                }
+-            } else {
+-                if (ImGui::Button("Stop hosting")) {
+-                    gb_serial_link_shutdown();
+-                    g_link_listening = false;
+-                    g_link_status_text.clear();
+-                }
+-            }
+-
+-            ImGui::Spacing();
+-            ImGui::TextDisabled("Discovered peers");
+-            if (!gb_lan_is_enabled()) {
+-                ImGui::TextDisabled("(turn on auto-discover to see peers)");
+-            } else {
+-                GBLanPeer net_peers[16];
+-                size_t np = gb_lan_get_peers(net_peers, 16);
+-                if (np == 0) {
+-                    ImGui::TextDisabled("(searching... peers appear within a few seconds)");
+-                } else if (ImGui::BeginTable("peers", 4,
+-                                             ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+-                    ImGui::TableSetupColumn("Nickname", ImGuiTableColumnFlags_WidthStretch);
+-                    ImGui::TableSetupColumn("Address",  ImGuiTableColumnFlags_WidthFixed, 170.0f * lan_ui_scale);
+-                    ImGui::TableSetupColumn("Status",   ImGuiTableColumnFlags_WidthFixed, 110.0f * lan_ui_scale);
+-                    ImGui::TableSetupColumn("Action",   ImGuiTableColumnFlags_WidthFixed, 110.0f * lan_ui_scale);
+-                    ImGui::TableHeadersRow();
+-                    const bool any_link = gb_serial_link_is_ready();
+-                    const char* current_peer_ip = gb_serial_link_peer_ip();
+-                    for (size_t i = 0; i < np; i++) {
+-                        const bool is_connected_peer = any_link && current_peer_ip && current_peer_ip[0] &&
+-                                                       strcmp(current_peer_ip, net_peers[i].ip) == 0;
+-                        ImGui::TableNextRow();
+-                        ImGui::TableNextColumn(); ImGui::TextUnformatted(net_peers[i].nickname);
+-                        ImGui::TableNextColumn(); ImGui::Text("%s:%u", net_peers[i].ip, (unsigned)net_peers[i].bgb_port);
+-                        ImGui::TableNextColumn();
+-                        if (is_connected_peer) {
+-                            ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "Connected");
+-                        } else {
+-                            ImGui::TextDisabled("Not connected");
+-                        }
+-                        ImGui::TableNextColumn();
+-                        ImGui::PushID((int)i);
+-                        if (is_connected_peer) {
+-                            if (ImGui::Button("Disconnect")) {
+-                                gb_serial_link_shutdown();
+-                                g_link_listening = false;
+-                                g_link_status_text.clear();
+-                            }
+-                        } else if (any_link) {
+-                            ImGui::BeginDisabled();
+-                            ImGui::Button("Connect");
+-                            ImGui::EndDisabled();
+-                        } else if (ImGui::Button("Connect")) {
+-                            if (gb_serial_link_start_connect(net_peers[i].ip, net_peers[i].bgb_port)) {
+-                                g_link_status_text = std::string("Connecting to ") + net_peers[i].nickname + "...";
+-                            } else {
+-                                g_link_status_text = std::string("Connect failed: ") + net_peers[i].ip;
+-                            }
+-                        }
+-                        ImGui::PopID();
+-                    }
+-                    ImGui::EndTable();
+-                }
+-            }
+-
+-            ImGui::Spacing();
+-            ImGui::TextDisabled("Direct connect");
+-            ImGui::PushItemWidth(180.0f * lan_ui_scale);
+-            ImGui::InputText("Host", g_link_manual_host, sizeof(g_link_manual_host));
+-            ImGui::SameLine();
+-            ImGui::InputText("Port", g_link_manual_port, sizeof(g_link_manual_port));
+-            ImGui::PopItemWidth();
+-            ImGui::SameLine();
+-            if (ImGui::Button("Join##direct")) {
+-                int mp = atoi(g_link_manual_port);
+-                if (mp > 0 && mp < 65536 && g_link_manual_host[0]) {
+-                    if (gb_serial_link_start_connect(g_link_manual_host, (uint16_t)mp)) {
+-                        g_link_status_text = std::string("Connecting to ") + g_link_manual_host + "...";
+-                    } else {
+-                        g_link_status_text = "Connect failed";
+-                    }
+-                }
+-            }
+-
+-            ImGui::Spacing();
+-            ImGui::TextDisabled("Rendezvous server (internet play)");
+-            ImGui::InputText("Server URL", g_relay_url, sizeof(g_relay_url));
+-
+-            const bool have_url = (g_relay_url[0] != '\0');
+-
+-            ImGui::Spacing();
+-            ImGui::TextDisabled("Host Server");
+-            ImGui::SameLine();
+-            if (g_relay_hosting) {
+-                ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "Hosting");
+-            } else {
+-                ImGui::TextUnformatted("Not hosting");
+-            }
+-            if (!have_url) ImGui::BeginDisabled();
+-            ImGui::PushItemWidth(220.0f * lan_ui_scale);
+-            ImGui::InputText("Room name", g_relay_code, sizeof(g_relay_code));
+-            ImGui::PopItemWidth();
+-            ImGui::SameLine();
+-            if (ImGui::Button("Random")) {
+-                generate_random_room_code(g_relay_code, sizeof(g_relay_code));
+-            }
+-            ImGui::SameLine();
+-            const bool can_host = have_url && (g_relay_code[0] != '\0');
+-            if (ImGui::Button("Host via Relay")) {
+-                if (!can_host) {
+-                    g_relay_status = have_url
+-                        ? "Type a room name (or click Random) before hosting."
+-                        : "Set Server URL above first.";
+-                } else {
+-                    save_runtime_preferences();
+-                    gb_serial_link_shutdown();
+-                    g_relay_joined = false;
+-                    if (!gb_serial_link_start_listen((uint16_t)g_link_port_pref)) {
+-                        g_relay_status = "Failed to open local listener; pick another port above.";
+-                        g_relay_hosting = false;
+-                    } else {
+-                        g_link_listening = true;
+-                        GBRelayResult r = gb_relay_register(g_relay_url, g_relay_code,
+-                                                           "host", g_link_port_pref,
+-                                                           gb_lan_self_nickname(),
+-                                                           gb_lan_self_uuid());
+-                        if (!r.ok) {
+-                            g_relay_status = std::string("Register failed: ") + r.error;
+-                            gb_serial_link_shutdown();
+-                            g_link_listening = false;
+-                            g_relay_hosting = false;
+-                        } else {
+-                            g_relay_hosting = true;
+-                            if (r.peer.has_peer) {
+-                                g_relay_status = std::string("Listening on port ") +
+-                                                 std::to_string(g_link_port_pref) +
+-                                                 "; join already registered from " + r.peer.ip;
+-                            } else {
+-                                g_relay_status = std::string("Listening on port ") +
+-                                                 std::to_string(g_link_port_pref) +
+-                                                 "; share code '" + g_relay_code +
+-                                                 "' and wait for the other side.";
+-                            }
+-                        }
+-                    }
+-                }
+-            }
+-
+-            ImGui::Spacing();
+-            ImGui::TextDisabled("Join Server");
+-            ImGui::SameLine();
+-            if (g_relay_joined) {
+-                ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "Joined");
+-            } else {
+-                ImGui::TextUnformatted("Not joined");
+-            }
+-            if (ImGui::Button("Refresh list")) {
+-                GBRelayRoomInfo rooms[64];
+-                GBRelayListResult lr = gb_relay_list_rooms(g_relay_url, rooms, 64);
+-                if (!lr.ok) {
+-                    g_relay_list_status = std::string("List failed: ") + lr.error;
+-                    g_relay_rooms.clear();
+-                    g_relay_room_pick = -1;
+-                } else {
+-                    g_relay_rooms.assign(rooms, rooms + lr.count);
+-                    g_relay_room_pick = g_relay_rooms.empty() ? -1 : 0;
+-                    g_relay_list_status = std::string("Found ") +
+-                                          std::to_string(lr.count) +
+-                                          (lr.count == 1 ? " open room." : " open rooms.");
+-                }
+-            }
+-            ImGui::SameLine();
+-            ImGui::PushItemWidth(220.0f * lan_ui_scale);
+-            std::string preview;
+-            if (g_relay_room_pick >= 0 && g_relay_room_pick < (int)g_relay_rooms.size()) {
+-                const GBRelayRoomInfo& r = g_relay_rooms[g_relay_room_pick];
+-                preview = std::string(r.code) + (r.nickname[0] ? std::string(" - ") + r.nickname : std::string());
+-            } else if (g_relay_rooms.empty()) {
+-                preview = "(no open rooms)";
+-            } else {
+-                preview = "(pick one)";
+-            }
+-            if (ImGui::BeginCombo("##relay_rooms", preview.c_str())) {
+-                for (int i = 0; i < (int)g_relay_rooms.size(); i++) {
+-                    const GBRelayRoomInfo& r = g_relay_rooms[i];
+-                    char label[160];
+-                    if (r.nickname[0]) {
+-                        snprintf(label, sizeof(label), "%s - %s (%ds ago)",
+-                                 r.code, r.nickname, r.age_seconds);
+-                    } else {
+-                        snprintf(label, sizeof(label), "%s (%ds ago)",
+-                                 r.code, r.age_seconds);
+-                    }
+-                    bool selected = (i == g_relay_room_pick);
+-                    if (ImGui::Selectable(label, selected)) {
+-                        g_relay_room_pick = i;
+-                        snprintf(g_relay_code, sizeof(g_relay_code), "%s", r.code);
+-                    }
+-                    if (selected) ImGui::SetItemDefaultFocus();
+-                }
+-                ImGui::EndCombo();
+-            }
+-            ImGui::PopItemWidth();
+-            ImGui::SameLine();
+-            const bool can_join = have_url && g_relay_room_pick >= 0 &&
+-                                  g_relay_room_pick < (int)g_relay_rooms.size();
+-            if (ImGui::Button("Join##relay")) {
+-                if (!can_join) {
+-                    g_relay_status = have_url
+-                        ? "Pick a room from the dropdown first (or hit Refresh list)."
+-                        : "Set Server URL above first.";
+-                } else {
+-                    save_runtime_preferences();
+-                    snprintf(g_relay_code, sizeof(g_relay_code), "%s",
+-                             g_relay_rooms[g_relay_room_pick].code);
+-                    g_relay_hosting = false;
+-                    g_relay_joined = false;
+-                    GBRelayResult r = gb_relay_register(g_relay_url, g_relay_code,
+-                                                       "join", 1, gb_lan_self_nickname(),
+-                                                       gb_lan_self_uuid());
+-                    if (!r.ok) {
+-                        g_relay_status = std::string("Register failed: ") + r.error;
+-                    } else if (!r.peer.has_peer) {
+-                        GBRelayResult lk = gb_relay_lookup(g_relay_url, g_relay_code, "join");
+-                        if (lk.ok && lk.peer.has_peer) r = lk;
+-                    }
+-                    if (r.ok && r.peer.has_peer) {
+-                        gb_serial_link_shutdown();
+-                        if (gb_serial_link_start_connect(r.peer.ip, (uint16_t)r.peer.port)) {
+-                            g_relay_status = std::string("Connecting to ") + r.peer.ip +
+-                                             ":" + std::to_string(r.peer.port);
+-                            g_relay_joined = true;
+-                        } else {
+-                            g_relay_status = std::string("Found host at ") + r.peer.ip +
+-                                             ":" + std::to_string(r.peer.port) +
+-                                             " but TCP connect failed (port not reachable).";
+-                        }
+-                    } else if (r.ok) {
+-                        g_relay_status = "Host disappeared between list and join - refresh and try again.";
+-                    }
+-                }
+-            }
+-            if (!g_relay_list_status.empty()) {
+-                ImGui::TextDisabled("%s", g_relay_list_status.c_str());
+-            }
+-            if (have_url) {
+-                if (ImGui::SmallButton("Forget my room")) {
+-                    if (g_relay_code[0]) {
+-                        gb_relay_unregister(g_relay_url, g_relay_code, "host");
+-                        gb_relay_unregister(g_relay_url, g_relay_code, "join");
+-                    }
+-                    g_relay_hosting = false;
+-                    g_relay_joined = false;
+-                    g_relay_status = "Removed from rendezvous server.";
+-                }
+-            }
+-            if (!have_url) ImGui::EndDisabled();
+-
+-            if (!g_relay_status.empty()) {
+-                ImGui::TextWrapped("%s", g_relay_status.c_str());
+-            }
+-            if (!have_url) {
+-                ImGui::TextDisabled("Fill in server URL to enable.");
+-            }
+-        }
+-
+-        ImGui::Spacing();
+-        ImGui::Separator();
+-
+-        /* ============================================================
+-         * Advanced: tucked away. Display, audio plumbing, key bindings,
+-         * diagnostics. Open it once to remap keys or pick an output
+-         * device, then forget it exists.
+-         * ========================================================== */
+-        if (ImGui::CollapsingHeader("Advanced")) {
+-            int window_w = 0;
+-            int window_h = 0;
+-            SDL_GetWindowSize(g_window, &window_w, &window_h);
+-
+-            ImGui::TextDisabled("Display");
+-            int fullscreen_mode = g_fullscreen_mode;
+-            if (ImGui::Combo("Fullscreen",
+-                             &fullscreen_mode,
+-                             g_fullscreen_mode_names,
+-                             IM_ARRAYSIZE(g_fullscreen_mode_names))) {
+-                set_fullscreen_mode(fullscreen_mode);
+-            }
+-            int scaling_mode = (int)g_render_scaling_mode;
+-            if (ImGui::Combo("Scaling Mode",
+-                             &scaling_mode,
+-                             g_render_scaling_mode_names,
+-                             IM_ARRAYSIZE(g_render_scaling_mode_names))) {
+-                g_render_scaling_mode = (GBRenderScalingMode)scaling_mode;
+-                update_game_viewport();
+-            }
+-            int filter_mode = (int)g_render_filter_mode;
+-            if (ImGui::Combo("Scale Filter",
+-                             &filter_mode,
+-                             g_render_filter_names,
+-                             IM_ARRAYSIZE(g_render_filter_names))) {
+-                g_render_filter_mode = (GBRenderFilterMode)filter_mode;
+-                update_render_filter();
+-            }
+-
+-            if (g_fullscreen_mode == 0) {
+-                int scale_idx = g_scale - 1;
+-                if (ImGui::Combo("Window Size",
+-                                 &scale_idx,
+-                                 g_scale_names,
+-                                 IM_ARRAYSIZE(g_scale_names))) {
+-                    g_scale = scale_idx + 1;
+-                    apply_window_scale_preset();
+-                }
+-            } else {
+-                ImGui::TextDisabled("Window Size disabled while fullscreen.");
+-            }
+-            if (ImGui::Checkbox("V-Sync", &g_vsync)) {
+-                SDL_GL_SetSwapInterval(g_vsync ? 1 : 0);
+-            }
+-            ImGui::Checkbox("Show Overlay", &g_show_overlay);
+-            ImGui::Checkbox("Smooth Slow Frames", &g_smooth_lcd_transitions);
+-
+-            ImGui::Spacing();
+-            ImGui::TextDisabled("Audio");
+-            if (ImGui::Checkbox("Enable Audio Output", &g_audio_output_enabled)) {
+-                reset_audio_output_buffer(true);
+-                save_runtime_preferences();
+-            }
+-            if (ImGui::BeginCombo("Output Device", current_audio_output_device_label())) {
+-                bool selected_default = g_audio_target_device_name.empty();
+-                if (ImGui::Selectable("System Default", selected_default)) {
+-                    g_audio_target_device_name.clear();
+-                    save_runtime_preferences();
+-                    reopen_audio_output_device(true);
+-                }
+-                if (selected_default) {
+-                    ImGui::SetItemDefaultFocus();
+-                }
+-                for (size_t i = 0; i < g_audio_output_devices.size(); i++) {
+-                    const bool selected = g_audio_output_devices[i] == g_audio_target_device_name;
+-                    if (ImGui::Selectable(g_audio_output_devices[i].c_str(), selected)) {
+-                        g_audio_target_device_name = g_audio_output_devices[i];
+-                        save_runtime_preferences();
+-                        reopen_audio_output_device(true);
+-                    }
+-                    if (selected) {
+-                        ImGui::SetItemDefaultFocus();
+-                    }
+-                }
+-                ImGui::EndCombo();
+-            }
+-            int audio_latency_ms = (int)g_audio_latency_ms;
+-            if (ImGui::SliderInt("Target Audio Latency (ms)", &audio_latency_ms, 20, 250, "%d", ImGuiSliderFlags_NoInput)) {
+-                g_audio_latency_ms = (uint32_t)audio_latency_ms;
+-                recompute_audio_targets();
+-                reset_audio_output_buffer(true);
+-                save_runtime_preferences();
+-            }
+-            if (ImGui::Button("Refresh Devices")) {
+-                refresh_audio_output_devices();
+-            }
+-            ImGui::SameLine();
+-            if (ImGui::Button("Reconnect Audio")) {
+-                reopen_audio_output_device(true);
+-            }
+-            ImGui::SameLine();
+-            if (ImGui::Button("Clear Audio Buffer")) {
+-                reset_audio_output_buffer(true);
+-            }
+-            ImGui::TextDisabled("Active: %s", g_audio_active_device_name.empty() ? "Unavailable" : g_audio_active_device_name.c_str());
+-            if (!current_audio_output_device_available()) {
+-                ImGui::TextDisabled("Requested device unavailable; using default.");
+-            }
+-            ImGui::TextDisabled("Ring %u / %u  ·  %u Hz buf %u",
+-                                current_audio_ring_fill_samples(), current_audio_ring_capacity(),
+-                                g_audio_device_sample_rate, g_audio_device_buffer_samples);
+-            if (effective_speed_percent() != 100) {
+-                ImGui::TextDisabled("Audio paused while Speed %% != 100.");
+-            }
+-            if (ImGui::Button("Reset Audio")) {
+-                reset_runtime_audio_defaults();
+-            }
+-
+-            ImGui::Spacing();
+-            ImGui::TextDisabled("Controls");
+-            if (!g_controller_name.empty()) {
+-                ImGui::Text("Controller: %s", g_controller_name.c_str());
+-                ImGui::TextDisabled("Profile: %s", controller_type_name(g_controller_type));
+-            } else {
+-#if defined(__ANDROID__)
+-                ImGui::TextDisabled("No controller detected. Controller mappings apply when one is connected.");
+-#else
+-                ImGui::TextDisabled("No controller detected.");
+-#endif
+-            }
+-            render_binding_editor("Keyboard Gameplay",
+-                                  GB_CAPTURE_DEVICE_KEYBOARD,
+-                                  g_keyboard_bindings,
+-                                  GB_INPUT_ACTION_RIGHT,
+-                                  GB_INPUT_ACTION_FAST_FORWARD);
+-            ImGui::Spacing();
+-            render_binding_editor("Controller Gameplay",
+-                                  GB_CAPTURE_DEVICE_CONTROLLER,
+-                                  g_controller_bindings,
+-                                  GB_INPUT_ACTION_RIGHT,
+-                                  GB_INPUT_ACTION_FAST_FORWARD);
+-            ImGui::Spacing();
+-            render_binding_editor("Keyboard Shortcuts",
+-                                  GB_CAPTURE_DEVICE_KEYBOARD,
+-                                  g_keyboard_bindings,
+-                                  GB_INPUT_ACTION_FAST_FORWARD,
+-                                  GB_INPUT_ACTION_COUNT);
+-            ImGui::Spacing();
+-            render_binding_editor("Controller Shortcuts",
+-                                  GB_CAPTURE_DEVICE_CONTROLLER,
+-                                  g_controller_bindings,
+-                                  GB_INPUT_ACTION_FAST_FORWARD,
+-                                  GB_INPUT_ACTION_COUNT);
+-            if (g_binding_capture_active) {
+-                ImGui::Separator();
+-                ImGui::TextDisabled("Waiting for %s input for %s slot %d",
+-                                    g_binding_capture_device == GB_CAPTURE_DEVICE_KEYBOARD ? "keyboard" : "controller",
+-                                    g_input_action_names[g_binding_capture_action],
+-                                    g_binding_capture_slot + 1);
+-                if (ImGui::Button("Cancel Capture")) {
+-                    cancel_binding_capture();
+-                }
+-            }
+-            if (ImGui::Button("Reset Controls")) {
+-                reset_runtime_control_defaults();
+-            }
+-            ImGui::TextDisabled("Shortcuts: fast forward, max speed, savestates, overlay, mute, menu.");
+-
+-            ImGui::Spacing();
+-            ImGui::TextDisabled("Diagnostics");
+-            ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+-            ImGui::Text("Window: %d x %d  ·  Viewport: %d x %d (%.2fx)",
+-                        window_w, window_h,
+-                        g_game_viewport.w, g_game_viewport.h,
+-                        (double)g_game_viewport.w / (double)GB_SCREEN_WIDTH);
+-            if (has_interpreter_activity(g_registered_ctx)) {
+-                const GBInterpreterHotspot* hotspot = &g_registered_ctx->interpreter_hotspots[0];
+-                ImGui::Text("Frame Fallbacks: %u", g_registered_ctx->frame_dispatch_fallbacks);
+-                ImGui::Text("Total Fallbacks: %llu",
+-                            (unsigned long long)g_registered_ctx->total_dispatch_fallbacks);
+-                ImGui::Text("Interp Instr: frame %llu total %llu",
+-                            (unsigned long long)g_registered_ctx->frame_interpreter_instructions,
+-                            (unsigned long long)g_registered_ctx->total_interpreter_instructions);
+-                if (hotspot->valid && hotspot->entries > 0) {
+-                    ImGui::Text("Top Hotspot: %03X:%04X (%llu hits)",
+-                                hotspot->bank, hotspot->addr,
+-                                (unsigned long long)hotspot->entries);
+-                }
+-                if (g_registered_ctx->has_unimplemented_interpreter_opcode) {
+-                    ImGui::Text("Coverage Gap: %02X at %03X:%04X",
+-                                g_registered_ctx->last_unimplemented_opcode,
+-                                g_registered_ctx->last_unimplemented_bank,
+-                                g_registered_ctx->last_unimplemented_addr);
+-                }
+-            }
+-
+-            ImGui::Spacing();
+-            ImGui::TextDisabled("Toggle menu: %s", controller_menu_hint_text());
+-#if defined(__ANDROID__)
+-            ImGui::TextDisabled("Android Back / Escape also opens or closes the menu.");
+-#else
+-            ImGui::TextDisabled("Escape also opens or closes the menu.");
+-#endif
+-        }
+-
+-        /* Game-specific overlay controls. The agnostic core renders nothing
+-         * here by default (no-op in game_extras_default.c); a game's extras
+-         * (e.g. the Pokémon repo) implements game_draw_overlay() to add its
+-         * own ImGui sections. This is where the former built-in "Pokemon
+-         * Options" CollapsingHeader now lives, moved out of the core. */
+-        game_draw_overlay(g_registered_ctx);
+-
+-        ImGui::EndChild();
+-        ImGui::Separator();
+-
+-        const int footer_button_count = g_launcher_return_enabled ? 3 : 2;
+-        const float footer_button_width =
+-            (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * (footer_button_count - 1)) /
+-            (float)footer_button_count;
+-        if (ImGui::Button("Resume", ImVec2(footer_button_width, 0.0f))) {
+-            g_show_menu = false;
+-        }
+-
+-        if (g_launcher_return_enabled) {
+-            ImGui::SameLine();
+-            if (ImGui::Button("Return to Launcher", ImVec2(footer_button_width, 0.0f))) {
+-                g_exit_action = GB_PLATFORM_EXIT_RETURN_TO_LAUNCHER;
+-                SDL_Event quit_event;
+-                quit_event.type = SDL_QUIT;
+-                SDL_PushEvent(&quit_event);
+-            }
+-        } else {
+-            /* Single-game launcher mode: nowhere to return to, so offer
+-             * "Restart Game" in the same slot. The launcher loops back to
+-             * the same cart and pokegame_init runs a full reset.
+-             *
+-             * We don't change g_exit_action here (the recompiled main only
+-             * has translation logic for RETURN_TO_LAUNCHER → exit code 64);
+-             * instead we set a separate flag the launcher reads after the
+-             * cart's main_fn returns. */
+-            ImGui::SameLine();
+-            if (ImGui::Button("Restart Game", ImVec2(footer_button_width, 0.0f))) {
+-                g_restart_game_requested = true;
+-                g_exit_action = GB_PLATFORM_EXIT_RESTART_GAME;
+-                SDL_Event quit_event;
+-                quit_event.type = SDL_QUIT;
+-                SDL_PushEvent(&quit_event);
+-            }
+-        }
+-
+-        ImGui::SameLine();
+-        if (ImGui::Button("Quit", ImVec2(footer_button_width, 0.0f))) {
+-            g_exit_action = GB_PLATFORM_EXIT_QUIT;
+-            SDL_Event quit_event;
+-            quit_event.type = SDL_QUIT;
+-            SDL_PushEvent(&quit_event);
+-        }
+-        ImGui::End();
+-        ImGui::PopStyleVar(6);
+-    } else if (g_show_overlay) {
++    if (g_show_overlay) {
+@@ -4249 +2968,0 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+-            ImGui::Text("%s", overlay_menu_hint_text());
+@@ -4309,3 +3027,0 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+-#ifdef RECOMP_LAUNCHER
+-    recomp_runtime_ui_render_imgui(g_runtime_ui);
+-#endif
+@@ -4340,4 +3055,0 @@ void gb_platform_shutdown(void) {
+-#ifdef RECOMP_LAUNCHER
+-        recomp_runtime_ui_destroy(g_runtime_ui);
+-        g_runtime_ui = NULL;
+-#endif
+@@ -4749 +3461,2 @@ bool gb_platform_init(int scale) {
 -        if (gb_launcher_preboot() == GB_LAUNCHER_QUIT) {
 +        const int launcher_result = gb_launcher_preboot();
 +        if (launcher_result == GB_LAUNCHER_QUIT) {
-             /* user closed the launcher window: clean exit, no game boot */
-             exit(0);
-         }
+@@ -4752,0 +3466,4 @@ bool gb_platform_init(int scale) {
 +        if (launcher_result == GB_LAUNCHER_ERROR) {
 +            /* Required ROM missing/invalid: preboot already showed the alert. */
 +            exit(1);
 +        }
-     }
- #endif
- 
-@@ -4806,12 +4815,16 @@ bool gb_platform_init(int scale) {
-      * (libGLESv2.dll/libEGL.dll), matching our link-time GL functions. */
-     SDL_SetHint(SDL_HINT_OPENGL_ES_DRIVER, "1");
- #endif
+@@ -4809,3 +3526,6 @@ bool gb_platform_init(int scale) {
 -    /* Request a GLES 2.0 context — same code path on desktop Mesa
 -     * (which advertises a compatible profile) and embedded Mali / Adreno
 -     * GPUs. SDL_WINDOW_OPENGL must be set BEFORE SDL_CreateWindow. */
@@ -455,32 +1672,157 @@ index 465ef72..45fbb92 100644
 +    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 +    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
 +#else
-     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+@@ -4814,0 +3535 @@ bool gb_platform_init(int scale) {
 +#endif
-     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
- 
-@@ -4883,9 +4896,13 @@ bool gb_platform_init(int scale) {
- 
-     apply_imgui_theme(g_imgui_theme);
- 
+@@ -4886 +3607 @@ bool gb_platform_init(int scale) {
 -    /* GLES 2 backend — `#version 100` GLSL, no VAOs, runs anywhere. */
 +    /* Match the renderer backend and shader dialect to the platform context. */
-     ImGui_ImplSDL2_InitForOpenGL(g_window, g_gl_context);
+@@ -4887,0 +3609,3 @@ bool gb_platform_init(int scale) {
 +#if defined(__APPLE__)
 +    ImGui_ImplOpenGL3_Init("#version 150");
 +#else
-     ImGui_ImplOpenGL3_Init("#version 100");
-+#endif
- 
- #ifdef RECOMP_LAUNCHER
-     create_runtime_ui();
-@@ -5264,6 +5281,18 @@ bool gb_platform_poll_events(GBContext* ctx) {
-     gb_debug_server_poll();
-     gb_debug_server_wait_if_paused();
- 
+@@ -4889,3 +3612,0 @@ bool gb_platform_init(int scale) {
+-
+-#ifdef RECOMP_LAUNCHER
+-    create_runtime_ui();
+@@ -4958,0 +3680,4 @@ static bool handle_binding_capture_event(const SDL_Event* event) {
++            if (event->key.keysym.scancode == SDL_SCANCODE_RETURN ||
++                event->key.keysym.scancode == SDL_SCANCODE_KP_ENTER) {
++                return true;
++            }
+@@ -4993,69 +3717,0 @@ static bool handle_binding_capture_event(const SDL_Event* event) {
+-#ifdef RECOMP_LAUNCHER
+-static bool handle_shared_runtime_ui_event(const SDL_Event* event) {
+-    if (!g_runtime_ui || !event) return false;
+-
+-    if (event->type == SDL_CONTROLLERBUTTONDOWN &&
+-        event->cbutton.button == SDL_CONTROLLER_BUTTON_GUIDE) {
+-        if (recomp_runtime_ui_is_open(g_runtime_ui))
+-            recomp_runtime_ui_close(g_runtime_ui);
+-        else {
+-            g_show_menu = false;
+-            recomp_runtime_ui_open(g_runtime_ui);
+-        }
+-        return true;
+-    }
+-
+-    if ((event->type == SDL_KEYDOWN || event->type == SDL_KEYUP)) {
+-        const int pressed = event->type == SDL_KEYDOWN;
+-        const int repeat = pressed ? event->key.repeat : 0;
+-        RecompRuntimeUiInput input;
+-        bool mapped = true;
+-        switch (event->key.keysym.scancode) {
+-            case SDL_SCANCODE_ESCAPE:
+-            case SDL_SCANCODE_AC_BACK: input = RECOMP_RUNTIME_UI_INPUT_BACK; break;
+-            case SDL_SCANCODE_UP: input = RECOMP_RUNTIME_UI_INPUT_UP; break;
+-            case SDL_SCANCODE_DOWN: input = RECOMP_RUNTIME_UI_INPUT_DOWN; break;
+-            case SDL_SCANCODE_LEFT: input = RECOMP_RUNTIME_UI_INPUT_LEFT; break;
+-            case SDL_SCANCODE_RIGHT: input = RECOMP_RUNTIME_UI_INPUT_RIGHT; break;
+-            case SDL_SCANCODE_RETURN:
+-            case SDL_SCANCODE_SPACE: input = RECOMP_RUNTIME_UI_INPUT_ACCEPT; break;
+-            default: mapped = false; break;
+-        }
+-        if (mapped) {
+-            if (!recomp_runtime_ui_is_open(g_runtime_ui) &&
+-                input == RECOMP_RUNTIME_UI_INPUT_BACK && pressed && !repeat) {
+-                g_show_menu = false;
+-                recomp_runtime_ui_open(g_runtime_ui);
+-            } else if (recomp_runtime_ui_is_open(g_runtime_ui)) {
+-                recomp_runtime_ui_handle_input(g_runtime_ui, input, pressed, repeat);
+-            }
+-            return true;
+-        }
+-        return recomp_runtime_ui_is_open(g_runtime_ui) != 0;
+-    }
+-
+-    if (event->type == SDL_CONTROLLERBUTTONDOWN ||
+-        event->type == SDL_CONTROLLERBUTTONUP) {
+-        const int pressed = event->type == SDL_CONTROLLERBUTTONDOWN;
+-        RecompRuntimeUiInput input;
+-        bool mapped = true;
+-        switch (event->cbutton.button) {
+-            case SDL_CONTROLLER_BUTTON_DPAD_UP: input = RECOMP_RUNTIME_UI_INPUT_UP; break;
+-            case SDL_CONTROLLER_BUTTON_DPAD_DOWN: input = RECOMP_RUNTIME_UI_INPUT_DOWN; break;
+-            case SDL_CONTROLLER_BUTTON_DPAD_LEFT: input = RECOMP_RUNTIME_UI_INPUT_LEFT; break;
+-            case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: input = RECOMP_RUNTIME_UI_INPUT_RIGHT; break;
+-            case SDL_CONTROLLER_BUTTON_A: input = RECOMP_RUNTIME_UI_INPUT_ACCEPT; break;
+-            case SDL_CONTROLLER_BUTTON_B: input = RECOMP_RUNTIME_UI_INPUT_BACK; break;
+-            default: mapped = false; break;
+-        }
+-        if (mapped && recomp_runtime_ui_is_open(g_runtime_ui)) {
+-            recomp_runtime_ui_handle_input(g_runtime_ui, input, pressed, 0);
+-            return true;
+-        }
+-        return recomp_runtime_ui_is_open(g_runtime_ui) != 0;
+-    }
+-
+-    return false;
+-}
+-#endif
+-
+@@ -5082,6 +3737,0 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+-#ifdef RECOMP_LAUNCHER
+-    if (handle_shared_runtime_ui_event(event)) {
+-        return true;
+-    }
+-#endif
+-
+@@ -5165,7 +3814,0 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+-            if (event->cbutton.button == SDL_CONTROLLER_BUTTON_GUIDE) {
+-                if (pressed) {
+-                    g_show_menu = !g_show_menu;
+-                }
+-                return true;
+-            }
+-
+@@ -5197,0 +3841 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
++            const SDL_Scancode scancode = event->key.keysym.scancode;
+@@ -5201,7 +3845,6 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+-            switch (event->key.keysym.scancode) {
+-                case SDL_SCANCODE_ESCAPE:
+-                case SDL_SCANCODE_AC_BACK:
+-                    if (pressed && event->key.repeat == 0) {
+-                        g_show_menu = !g_show_menu;
+-                    }
+-                    return true;
++            if (scancode == SDL_SCANCODE_ESCAPE) {
++                g_escape_as_b_pressed = pressed;
++            }
++            if (scancode == SDL_SCANCODE_RETURN || scancode == SDL_SCANCODE_KP_ENTER) {
++                g_enter_as_start_pressed = pressed;
++            }
+@@ -5209,2 +3852,15 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+-                default:
+-                    break;
++            if (pressed && event->key.repeat == 0) {
++                GBDevHotkey hotkey;
++                bool is_dev_hotkey = true;
++                switch (event->key.keysym.scancode) {
++                    case SDL_SCANCODE_1:
++                    case SDL_SCANCODE_KP_1:
++                        hotkey = GB_DEV_HOTKEY_RARE_CANDY;
++                        break;
++                    default:
++                        is_dev_hotkey = false;
++                        break;
++                }
++                if (is_dev_hotkey && game_handle_dev_hotkey(ctx, hotkey)) {
++                    return true;
++                }
+@@ -5213,4 +3869,8 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+-            for (int action = 0; action < GB_INPUT_ACTION_COUNT; action++) {
+-                for (int slot = 0; slot < 2; slot++) {
+-                    if (binding_matches_scancode(g_keyboard_bindings[action][slot], event->key.keysym.scancode)) {
+-                        g_keyboard_binding_pressed[action][slot] = pressed;
++            if (scancode != SDL_SCANCODE_ESCAPE &&
++                scancode != SDL_SCANCODE_RETURN &&
++                scancode != SDL_SCANCODE_KP_ENTER) {
++                for (int action = 0; action < GB_INPUT_ACTION_COUNT; action++) {
++                    for (int slot = 0; slot < 2; slot++) {
++                        if (binding_matches_scancode(g_keyboard_bindings[action][slot], scancode)) {
++                            g_keyboard_binding_pressed[action][slot] = pressed;
++                        }
+@@ -5266,0 +3927,12 @@ bool gb_platform_poll_events(GBContext* ctx) {
 +#if defined(GBRECOMP_HOST_EXIT_SIGNAL)
 +    /* A language-specific game patch may request host shutdown through the
 +     * unused FF7E/FF7F registers (signature "PK"). Consume the command and
@@ -493,29 +1835,17 @@ index 465ef72..45fbb92 100644
 +    }
 +#endif
 +
-     SDL_Event event;
- 
-     if (!g_benchmark_mode) {
 diff --git a/runtime/src/shader_pipeline.cpp b/runtime/src/shader_pipeline.cpp
 index 3390e22..476928f 100644
 --- a/runtime/src/shader_pipeline.cpp
 +++ b/runtime/src/shader_pipeline.cpp
-@@ -9,7 +9,11 @@
- #include "shader_pipeline.h"
- 
- #include <SDL.h>
+@@ -11,0 +12,3 @@
 +#if defined(__APPLE__)
 +#include <OpenGL/gl3.h>
 +#else
- #include <SDL_opengles2.h>
+@@ -12,0 +16 @@
 +#endif
- 
- #include <stdio.h>
- #include <stdlib.h>
-@@ -22,6 +26,43 @@
- 
- namespace {
- 
+@@ -24,0 +29,37 @@ namespace {
 +#if defined(__APPLE__)
 +std::string desktop_glsl(const char* source, GLenum stage) {
 +    std::string result = source ? source : "";
@@ -553,69 +1883,56 @@ index 3390e22..476928f 100644
 +}
 +#endif
 +
- /* Vertex shader, shared by every effect. */
- constexpr const char* VS_SRC = R"GLSL(
- #version 100
-@@ -125,6 +166,12 @@ bool log_link(GLuint prog, const char* label) {
- }
- 
- GLuint compile_program(const char* vs_src, const char* fs_src, const char* label) {
+@@ -127,0 +169,6 @@ GLuint compile_program(const char* vs_src, const char* fs_src, const char* label
 +#if defined(__APPLE__)
 +    const std::string desktop_vs = desktop_glsl(vs_src, GL_VERTEX_SHADER);
 +    const std::string desktop_fs = desktop_glsl(fs_src, GL_FRAGMENT_SHADER);
 +    vs_src = desktop_vs.c_str();
 +    fs_src = desktop_fs.c_str();
 +#endif
-     GLuint vs = glCreateShader(GL_VERTEX_SHADER);
-     glShaderSource(vs, 1, &vs_src, NULL);
-     glCompileShader(vs);
-@@ -184,6 +231,9 @@ struct GBShaderPipeline {
-     std::vector<ShaderEntry> shaders;
-     int    active = -1;
-     GLuint quad_vbo = 0;
+@@ -186,0 +234,3 @@ struct GBShaderPipeline {
 +#if defined(__APPLE__)
 +    GLuint quad_vao = 0;
 +#endif
-     std::string override_dir;
- };
- 
-@@ -193,6 +243,11 @@ GBShaderPipeline* gb_shader_pipeline_create(void) {
-     p->shaders.push_back({"smooth", FS_SMOOTH, 0, -1, -1, -1, -1, -1, -1, -1, false, false});
-     p->shaders.push_back({"lcd",    FS_LCD,    0, -1, -1, -1, -1, -1, -1, -1, false, false});
-     glGenBuffers(1, &p->quad_vbo);
+@@ -195,0 +246,5 @@ GBShaderPipeline* gb_shader_pipeline_create(void) {
 +#if defined(__APPLE__)
 +    /* Core-profile OpenGL requires a VAO to be bound while setting vertex
 +     * attribute pointers. GLES2 and compatibility contexts do not. */
 +    glGenVertexArrays(1, &p->quad_vao);
 +#endif
-     p->active = 0;
-     return p;
- }
-@@ -203,6 +258,9 @@ void gb_shader_pipeline_destroy(GBShaderPipeline* p) {
-         if (e.program) glDeleteProgram(e.program);
-     }
-     if (p->quad_vbo) glDeleteBuffers(1, &p->quad_vbo);
+@@ -205,0 +261,3 @@ void gb_shader_pipeline_destroy(GBShaderPipeline* p) {
 +#if defined(__APPLE__)
 +    if (p->quad_vao) glDeleteVertexArrays(1, &p->quad_vao);
 +#endif
-     delete p;
- }
- 
-@@ -277,6 +335,9 @@ void gb_shader_pipeline_draw(GBShaderPipeline* p,
-         x0, y1, 0.0f, 1.0f,
-     };
- 
+@@ -279,0 +338,3 @@ void gb_shader_pipeline_draw(GBShaderPipeline* p,
 +#if defined(__APPLE__)
 +    glBindVertexArray(p->quad_vao);
 +#endif
-     glBindBuffer(GL_ARRAY_BUFFER, p->quad_vbo);
-     glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
- 
-@@ -309,4 +370,7 @@ void gb_shader_pipeline_draw(GBShaderPipeline* p,
- 
-     if (e.a_pos >= 0) glDisableVertexAttribArray(e.a_pos);
-     if (e.a_uv  >= 0) glDisableVertexAttribArray(e.a_uv);
+@@ -311,0 +373,3 @@ void gb_shader_pipeline_draw(GBShaderPipeline* p,
 +#if defined(__APPLE__)
 +    glBindVertexArray(0);
 +#endif
- }
+diff --git a/runtime/src/game_defaults/game_default_get_region.c b/runtime/src/game_defaults/game_default_get_region.c
+new file mode 100644
+index 0000000..1a27892
+--- /dev/null
++++ b/runtime/src/game_defaults/game_default_get_region.c
+@@ -0,0 +1,5 @@
++/* Auto-split default for one game hook. See game_default_get_name.c. */
++#include "game_extras.h"
++#include "gbrt.h"
++
++const char *game_get_region(void) { return "USA"; }
+diff --git a/runtime/src/game_defaults/game_default_handle_dev_hotkey.c b/runtime/src/game_defaults/game_default_handle_dev_hotkey.c
+new file mode 100644
+index 0000000..4edec18
+--- /dev/null
++++ b/runtime/src/game_defaults/game_default_handle_dev_hotkey.c
+@@ -0,0 +1,7 @@
++#include "game_extras.h"
++
++int game_handle_dev_hotkey(struct GBContext *ctx, GBDevHotkey hotkey) {
++    (void)ctx;
++    (void)hotkey;
++    return 0;
++}
