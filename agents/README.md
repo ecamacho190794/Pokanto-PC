@@ -18,6 +18,9 @@ diagnosticar un fallo, lee este archivo y luego las notas específicas pertinent
   eliminación del menú de ajustes durante el juego y controles fijos de teclado.
 - `incidents/widescreen-overworld-objects.md`: composición de sprites en los
   márgenes extendidos y ajuste del filtro de visibilidad de objetos de la ROM.
+- `incidents/audio-muted-preference.md`: diagnóstico de audio inaudible cuando
+  el runtime conserva `audio.muted=1` en `runtime_prefs.ini` y eliminación de
+  atajos no relacionados con los controles del juego.
 - `incidents/launcher-aspect-ratio-options.md`: opciones de relación de aspecto
   del launcher, generación de tiles laterales del overworld sincronizada por
   scanline, límite de ancho del PPU y comportamiento del viewport con escala de

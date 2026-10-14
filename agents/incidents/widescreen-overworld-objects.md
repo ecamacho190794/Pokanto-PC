@@ -140,3 +140,36 @@ aplica sobre el commit fijado del submódulo. El arreglo quedó confirmado en
 juego por el usuario. Los cambios de visibilidad ROM son específicos de
 Pokered-es; una futura variante de idioma debe portar el cambio equivalente a
 su fuente ensamblador y reservar una dirección de RAM compatible.
+
+## Recorte de ROM y coordenadas OAM de margen izquierdo
+
+El usuario reportó que otra NPC del laboratorio seguía desapareciendo después de
+ampliar el límite izquierdo de `CheckSpriteAvailability`. Por tanto, aquella
+corrección del culling de la ROM era necesaria pero no resolvía por sí sola el
+caso visual.
+
+La inspección del camino de dibujo encontró una segunda pérdida común. En
+`engine/gfx/sprite_oam.asm`, Pokered calcula la posición horizontal relativa y la
+escribe en el byte X de OAM. Un X negativo se guarda módulo 256. El PPU extendido
+interpretaba ese byte como una coordenada positiva (p. ej. 240 - 8 = 232), así
+que el objeto no calificaba como candidato del margen izquierdo. El sidecar X16
+del runtime podría conservar la coordenada firmada, pero Pokered-es no lo arma
+ni publica el contexto requerido.
+
+`ppu_sprite_screen_x` ahora decodifica genéricamente ese byte cuando el viewport
+extendido está activo y el marco no está en modo pillarbox. Los valores que no
+pueden pertenecer al área visible nativa/derecha se desenvuelven restando 256;
+la coordenada firmada también se usa al ordenar sprites por prioridad. Esto
+permite que cualquier objeto OAM del margen izquierdo participe, sin comprobar
+nombres, IDs ni slots específicos. La ROM conserva el culling horizontal
+simétrico; aun así, `CheckSpriteAvailability` omite la comprobación X durante
+cierto movimiento programado, así que hay que verificar que esos casos no
+produzcan sprites alias en el borde opuesto.
+
+La compilación completa con `./languages/es/build.sh` terminó correctamente:
+ensambló Pokered-es, regeneró el proyecto español, enlazó `Pokemon_Edicion_Roja`
+y generó el BPS verificado. La mujer del laboratorio y la ausencia de sprites
+falsos en ambos bordes se deben revisar en ejecución. El usuario confirmó que la
+mujer ahora permanece visible. La coordenada envuelta explica el fallo observado
+en este caso; aún conviene vigilar posibles sprites alias durante movimientos
+programados, que pueden omitir el culling horizontal de la ROM.

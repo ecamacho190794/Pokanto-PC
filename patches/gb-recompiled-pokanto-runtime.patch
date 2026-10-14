@@ -362,42 +362,99 @@ index 62a3b83..2bdf6f2 100644
 +    if (aspect_index < 0 || aspect_index > 4) aspect_index = 0;
 +    seam_upsert_int(prefs_path, "video.aspect_index",   aspect_index);
 diff --git a/runtime/src/platform_sdl.cpp b/runtime/src/platform_sdl.cpp
-index 465ef72..a4b9260 100644
+index 465ef72..f01fb3a 100644
 --- a/runtime/src/platform_sdl.cpp
 +++ b/runtime/src/platform_sdl.cpp
-@@ -23,0 +24 @@ extern "C" {
+@@ -21,6 +21,7 @@
+ #include "color_lut.h"  /* present-time screen-color LUT (opt-in, default raw) */
+ extern "C" {
+ #include "keybinds.h"
 +#include "game_extras.h"
-@@ -34,0 +36,3 @@ extern "C" void gb_debug_server_set_context(GBContext *ctx);
+ #ifdef RECOMP_LAUNCHER
+ #include "recomp_runtime_ui.h"
+ #include "launcher_ui_seam.h"   /* gb_launcher_preboot() — recomp-ui pre-boot seam */
+@@ -32,7 +33,11 @@ extern "C" void gb_debug_server_set_context(GBContext *ctx);
+ 
+ #ifdef GB_HAS_SDL2
+ #include <SDL.h>
 +#if defined(__APPLE__)
 +#include <OpenGL/gl3.h>
 +#else
-@@ -35,0 +40 @@ extern "C" void gb_debug_server_set_context(GBContext *ctx);
+ #include <SDL_opengles2.h>
 +#endif
-@@ -76,0 +82,2 @@ static GLuint g_game_tex = 0;
+ #include <algorithm>
+ #include <atomic>
+ #include <cctype>
+@@ -74,6 +79,8 @@ static constexpr const char* GB_BORDER_DIR_NAME = "borders";
+ static SDL_Window* g_window = NULL;
+ static SDL_GLContext g_gl_context = NULL;
+ static GLuint g_game_tex = 0;
 +static int g_game_tex_width = 0;
 +static int g_game_tex_height = 0;
-@@ -87,0 +95,2 @@ static int g_scale = 5;
+ static GBShaderPipeline* g_shader_pipeline = NULL;
+ static std::string g_active_shader_pref = "sharp";
+ 
+@@ -85,6 +92,8 @@ static std::string g_active_shader_pref = "sharp";
+ static ColorLut* g_color_lut = NULL;
+ static bool g_color_lut_resolved = false;
+ static int g_scale = 5;
 +/* Launcher aspect vocabulary: 0=Original, 1=4:3, 2=16:9, 3=16:10, 4=21:9. */
 +static int g_aspect_index = 0;
-@@ -104,2 +112,0 @@ static GBPlatformTimingInfo g_last_timing = {};
+ static int g_windowed_width = GB_SCREEN_WIDTH * 5;
+ static int g_windowed_height = GB_SCREEN_HEIGHT * 5;
+ static SDL_Rect g_game_viewport = {0, 0, GB_SCREEN_WIDTH * 5, GB_SCREEN_HEIGHT * 5};
+@@ -101,12 +110,7 @@ static double g_timing_vsync_total = 0.0;
+ static uint32_t g_timing_frame_count = 0;
+ static GBPlatformTimingInfo g_last_timing = {};
+ 
 -/* Menu State */
 -static bool g_show_menu = false;
-@@ -107,3 +113,0 @@ static bool g_show_overlay = false;
+ static bool g_show_overlay = false;
 -#ifdef RECOMP_LAUNCHER
 -static RecompRuntimeUi* g_runtime_ui = NULL;
 -#endif
-@@ -280,2 +284 @@ typedef enum GBInputAction {
+ 
+ static int g_speed_percent = 100;
+ static int g_palette_idx = 0;
+@@ -277,8 +281,7 @@ typedef enum GBInputAction {
+     GB_INPUT_ACTION_NEXT_STATE_SLOT = 13,
+     GB_INPUT_ACTION_TOGGLE_OVERLAY = 14,
+     GB_INPUT_ACTION_TOGGLE_MUTE = 15,
 -    GB_INPUT_ACTION_TOGGLE_MENU = 16,
 -    GB_INPUT_ACTION_COUNT = 17,
 +    GB_INPUT_ACTION_COUNT = 16,
-@@ -355,0 +359,2 @@ static bool g_keyboard_binding_pressed[GB_INPUT_ACTION_COUNT][2] = {};
+ } GBInputAction;
+ typedef enum GBInputBindingKind {
+     GB_INPUT_BINDING_NONE = 0,
+@@ -353,6 +356,8 @@ static GBContext* g_registered_ctx = NULL;
+ static GBInputBinding g_keyboard_bindings[GB_INPUT_ACTION_COUNT][2] = {};
+ static GBInputBinding g_controller_bindings[GB_INPUT_ACTION_COUNT][2] = {};
+ static bool g_keyboard_binding_pressed[GB_INPUT_ACTION_COUNT][2] = {};
 +static bool g_escape_as_b_pressed = false;
 +static bool g_enter_as_start_pressed = false;
-@@ -383 +387,0 @@ static const char* g_input_action_names[GB_INPUT_ACTION_COUNT] = {
+ static bool g_controller_button_binding_pressed[GB_INPUT_ACTION_COUNT][2] = {};
+ static bool g_controller_axis_binding_pressed[GB_INPUT_ACTION_COUNT][2] = {};
+ static bool g_runtime_action_pressed[GB_INPUT_ACTION_COUNT] = {};
+@@ -380,7 +385,6 @@ static const char* g_input_action_names[GB_INPUT_ACTION_COUNT] = {
+     "Next State Slot",
+     "Toggle Overlay",
+     "Toggle Mute",
 -    "Toggle Menu",
-@@ -416 +419,0 @@ static float settings_ui_scale_for_size(const ImVec2& display_size);
+ };
+ 
+ static bool has_interpreter_activity(const GBContext* ctx) {
+@@ -413,7 +417,6 @@ static bool load_savestate_slot(GBContext* ctx, int slot);
+ static bool delete_savestate_slot(GBContext* ctx, int slot);
+ static bool savestate_slot_exists(const GBContext* ctx, int slot, std::string* out_path);
+ static float settings_ui_scale_for_size(const ImVec2& display_size);
 -static const char* controller_menu_hint_text(void);
-@@ -610,8 +612,0 @@ static bool platform_uses_app_storage_for_relative_paths(void) {
+ static bool input_action_is_runtime(GBInputAction action);
+ static int effective_speed_percent(void);
+ static void update_runtime_action_state(GBContext* ctx);
+@@ -607,14 +610,6 @@ static bool platform_uses_app_storage_for_relative_paths(void) {
+ #endif
+ }
+ 
 -static const char* overlay_menu_hint_text(void) {
 -#if defined(__ANDROID__)
 -    return "Press Back, L3, or R3 for Menu";
@@ -406,7 +463,13 @@ index 465ef72..a4b9260 100644
 -#endif
 -}
 -
-@@ -637,8 +631,0 @@ static float settings_ui_scale_for_size(const ImVec2& display_size) {
+ static float settings_ui_scale_for_size(const ImVec2& display_size) {
+     float min_dimension = display_size.x < display_size.y ? display_size.x : display_size.y;
+     if (min_dimension <= 0.0f) {
+@@ -634,14 +629,6 @@ static float settings_ui_scale_for_size(const ImVec2& display_size) {
+     return scale;
+ }
+ 
 -static const char* controller_menu_hint_text(void) {
 -#if defined(__ANDROID__)
 -    return "Guide, L3, or R3: Settings Menu";
@@ -415,26 +478,92 @@ index 465ef72..a4b9260 100644
 -#endif
 -}
 -
-@@ -662 +649 @@ static const char* overlay_visibility_hint_text(void) {
+ static bool input_action_is_runtime(GBInputAction action) {
+     return action >= GB_JOYPAD_ACTION_COUNT && action < GB_INPUT_ACTION_COUNT;
+ }
+@@ -659,7 +646,7 @@ static int effective_speed_percent(void) {
+ 
+ static const char* overlay_visibility_hint_text(void) {
+ #if defined(__ANDROID__)
 -    return "Use the settings menu or a shortcut binding to toggle the overlay";
 +    return "Use F1 or a shortcut binding to toggle the overlay";
-@@ -1098 +1084,0 @@ static const char* input_action_config_name(GBInputAction action) {
+ #else
+     return "Use F1 or a shortcut binding for Overlay";
+ #endif
+@@ -1095,7 +1082,6 @@ static const char* input_action_config_name(GBInputAction action) {
+         case GB_INPUT_ACTION_NEXT_STATE_SLOT: return "next_state_slot";
+         case GB_INPUT_ACTION_TOGGLE_OVERLAY: return "toggle_overlay";
+         case GB_INPUT_ACTION_TOGGLE_MUTE: return "toggle_mute";
 -        case GB_INPUT_ACTION_TOGGLE_MENU: return "toggle_menu";
-@@ -1121,0 +1108,2 @@ static void clear_all_binding_pressed_state(void) {
+         case GB_INPUT_ACTION_COUNT:
+         default:
+             return "unknown";
+@@ -1107,7 +1093,9 @@ static bool parse_input_action_name(const char* text, GBInputAction* out_action)
+         return false;
+     }
+ 
+-    for (int action = 0; action < GB_INPUT_ACTION_COUNT; action++) {
++    /* Only Game Boy controls may be configured. Ignore persisted runtime
++     * shortcuts from older builds so they cannot silently become active. */
++    for (int action = 0; action < GB_JOYPAD_ACTION_COUNT; action++) {
+         if (strcmp(text, input_action_config_name((GBInputAction)action)) == 0) {
+             *out_action = (GBInputAction)action;
+             return true;
+@@ -1119,6 +1107,8 @@ static bool parse_input_action_name(const char* text, GBInputAction* out_action)
+ 
+ static void clear_all_binding_pressed_state(void) {
+     memset(g_keyboard_binding_pressed, 0, sizeof(g_keyboard_binding_pressed));
 +    g_escape_as_b_pressed = false;
 +    g_enter_as_start_pressed = false;
-@@ -1192 +1179,0 @@ static void set_default_input_bindings(void) {
+     memset(g_controller_button_binding_pressed, 0, sizeof(g_controller_button_binding_pressed));
+     memset(g_controller_axis_binding_pressed, 0, sizeof(g_controller_axis_binding_pressed));
+     memset(g_runtime_action_pressed, 0, sizeof(g_runtime_action_pressed));
+@@ -1189,17 +1179,6 @@ static void set_default_input_bindings(void) {
+     g_keyboard_bindings[GB_INPUT_ACTION_B][1] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_K);
+     g_keyboard_bindings[GB_INPUT_ACTION_SELECT][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_BACKSPACE);
+     g_keyboard_bindings[GB_INPUT_ACTION_SELECT][1] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_RSHIFT);
 -    g_keyboard_bindings[GB_INPUT_ACTION_START][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_RETURN);
-@@ -1201 +1187,0 @@ static void set_default_input_bindings(void) {
+-    g_keyboard_bindings[GB_INPUT_ACTION_FAST_FORWARD][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_TAB);
+-    g_keyboard_bindings[GB_INPUT_ACTION_TOGGLE_MAX_SPEED][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_GRAVE);
+-    g_keyboard_bindings[GB_INPUT_ACTION_SAVE_STATE][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_F5);
+-    g_keyboard_bindings[GB_INPUT_ACTION_LOAD_STATE][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_F8);
+-    g_keyboard_bindings[GB_INPUT_ACTION_PREVIOUS_STATE_SLOT][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_F6);
+-    g_keyboard_bindings[GB_INPUT_ACTION_NEXT_STATE_SLOT][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_F7);
+-    g_keyboard_bindings[GB_INPUT_ACTION_TOGGLE_OVERLAY][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_F1);
+-    g_keyboard_bindings[GB_INPUT_ACTION_TOGGLE_MUTE][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_M);
 -    g_keyboard_bindings[GB_INPUT_ACTION_TOGGLE_MENU][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_F10);
-@@ -1221,2 +1206,0 @@ static void set_default_input_bindings(void) {
+-
+     g_controller_bindings[GB_INPUT_ACTION_UP][0] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_DPAD_UP);
+     g_controller_bindings[GB_INPUT_ACTION_UP][1] = make_binding(GB_INPUT_BINDING_CONTROLLER_AXIS_NEGATIVE, SDL_CONTROLLER_AXIS_LEFTY);
+     g_controller_bindings[GB_INPUT_ACTION_DOWN][0] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+@@ -1214,13 +1193,6 @@ static void set_default_input_bindings(void) {
+     g_controller_bindings[GB_INPUT_ACTION_B][1] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+     g_controller_bindings[GB_INPUT_ACTION_SELECT][0] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_BACK);
+     g_controller_bindings[GB_INPUT_ACTION_START][0] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_START);
+-    g_controller_bindings[GB_INPUT_ACTION_FAST_FORWARD][0] = make_binding(GB_INPUT_BINDING_CONTROLLER_AXIS_POSITIVE, SDL_CONTROLLER_AXIS_TRIGGERRIGHT);
+-    g_controller_bindings[GB_INPUT_ACTION_TOGGLE_MAX_SPEED][0] = make_binding(GB_INPUT_BINDING_CONTROLLER_AXIS_POSITIVE, SDL_CONTROLLER_AXIS_TRIGGERLEFT);
+-    g_controller_bindings[GB_INPUT_ACTION_SAVE_STATE][0] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_X);
+-    g_controller_bindings[GB_INPUT_ACTION_LOAD_STATE][0] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_Y);
 -    g_controller_bindings[GB_INPUT_ACTION_TOGGLE_MENU][0] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_LEFTSTICK);
 -    g_controller_bindings[GB_INPUT_ACTION_TOGGLE_MENU][1] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_RIGHTSTICK);
-@@ -1245,0 +1230,3 @@ static void load_runtime_preferences(void) {
+-
+     clear_all_binding_pressed_state();
+ }
+ 
+@@ -1243,6 +1215,9 @@ static int g_pref_widescreen = 0;
+ static void load_runtime_preferences(void) {
+     set_default_audio_preferences();
+     set_default_input_bindings();
 +    g_aspect_index = 0;
 +    g_pref_widescreen = 0;
 +    gb_ws_set_cli_request(0);
-@@ -1314,0 +1302,7 @@ static void load_runtime_preferences(void) {
+     g_savestate_slot = 0;
+     g_savestate_status.clear();
+     g_max_speed_mode = false;
+@@ -1312,6 +1287,13 @@ static void load_runtime_preferences(void) {
+                     }
+                     continue;
+                 }
 +                if (strcmp(key, "video.aspect_index") == 0) {
 +                    long parsed = strtol(value, NULL, 10);
 +                    if (parsed >= 0 && parsed <= 4) {
@@ -442,26 +571,74 @@ index 465ef72..a4b9260 100644
 +                    }
 +                    continue;
 +                }
-@@ -1491,0 +1486,5 @@ static void load_runtime_preferences(void) {
+                 if (strcmp(key, "video.fullscreen") == 0) {
+                     /* Tri-state (0 off / 1 borderless / 2 exclusive). Clamp
+                      * so a stray/garbled value can't slip a bad SDL flag
+@@ -1489,6 +1471,11 @@ static void load_runtime_preferences(void) {
+             fclose(file);
+         }
+     }
 +    static const int aspect_widths[] = {160, 192, 256, 230, 336};
 +    const int aspect_width = aspect_widths[g_aspect_index];
 +    gb_ws_set_cli_request(g_aspect_index == 0
 +        ? (g_pref_widescreen ? GB_WS_MAX_VIEW_WIDTH : 0)
 +        : aspect_width);
-@@ -1543,0 +1543 @@ static void save_runtime_preferences(void) {
+     update_effective_joypad_state();
+ }
+ 
+@@ -1541,6 +1528,7 @@ static void save_runtime_preferences(void) {
+     /* recomp-ui launcher-controlled display settings (round-trip with the
+      * pre-boot seam; see launcher_ui_seam.c). */
+     fprintf(file, "window.scale=%d\n", g_scale);
 +    fprintf(file, "video.aspect_index=%d\n", g_aspect_index);
-@@ -1636,0 +1637,5 @@ static bool input_action_is_pressed(GBInputAction action) {
+     fprintf(file, "video.fullscreen=%d\n", g_fullscreen_mode);
+     fprintf(file, "video.linear_filter=%d\n",
+             g_render_filter_mode == GB_RENDER_FILTER_LINEAR ? 1 : 0);
+@@ -1574,7 +1562,7 @@ static void save_runtime_preferences(void) {
+         }
+     }
+ 
+-    for (int action = 0; action < GB_INPUT_ACTION_COUNT; action++) {
++    for (int action = 0; action < GB_JOYPAD_ACTION_COUNT; action++) {
+         for (int slot = 0; slot < 2; slot++) {
+             char value[64];
+             binding_to_config_value(g_keyboard_bindings[action][slot], value, sizeof(value));
+@@ -1582,7 +1570,7 @@ static void save_runtime_preferences(void) {
+         }
+     }
+ 
+-    for (int action = 0; action < GB_INPUT_ACTION_COUNT; action++) {
++    for (int action = 0; action < GB_JOYPAD_ACTION_COUNT; action++) {
+         for (int slot = 0; slot < 2; slot++) {
+             char value[64];
+             binding_to_config_value(g_controller_bindings[action][slot], value, sizeof(value));
+@@ -1634,6 +1622,11 @@ static void parse_buttons(const char* btn_str, uint8_t* dpad, uint8_t* buttons)
+ }
+ 
+ static bool input_action_is_pressed(GBInputAction action) {
 +    if ((action == GB_INPUT_ACTION_B && g_escape_as_b_pressed) ||
 +        (action == GB_INPUT_ACTION_START && g_enter_as_start_pressed)) {
 +        return true;
 +    }
 +
-@@ -1692,4 +1696,0 @@ static void update_runtime_action_state(GBContext* ctx) {
+     for (int slot = 0; slot < 2; slot++) {
+         if (g_keyboard_binding_pressed[action][slot] ||
+             g_controller_button_binding_pressed[action][slot] ||
+@@ -1689,10 +1682,6 @@ static void update_runtime_action_state(GBContext* ctx) {
+                     save_runtime_preferences();
+                     break;
+ 
 -                case GB_INPUT_ACTION_TOGGLE_MENU:
 -                    g_show_menu = !g_show_menu;
 -                    break;
 -
-@@ -1737,10 +1737,0 @@ static void update_effective_joypad_state(void) {
+                 case GB_INPUT_ACTION_FAST_FORWARD:
+                 case GB_INPUT_ACTION_RIGHT:
+                 case GB_INPUT_ACTION_LEFT:
+@@ -1734,16 +1723,6 @@ static void rebuild_manual_joypad_state_from_bindings(void) {
+ 
+ static void update_effective_joypad_state(void) {
+     rebuild_manual_joypad_state_from_bindings();
 -    /* While the in-game menu is up, hide all joypad activity from the
 -     * cart. The game keeps running (so NPCs walk, music plays, RTC
 -     * advances), but arrow keys / A / Start used to navigate the
@@ -472,18 +649,35 @@ index 465ef72..a4b9260 100644
 -        g_joypad_buttons = 0xFF;
 -        return;
 -    }
-@@ -2380,0 +2372,4 @@ static void update_render_filter(void) {
+     g_joypad_dpad = g_manual_joypad_dpad & g_script_joypad_dpad;
+     g_joypad_buttons = g_manual_joypad_buttons & g_script_joypad_buttons;
+ }
+@@ -2378,15 +2357,20 @@ static void update_render_filter(void) {
+      * gone, so this is a no-op kept around for the existing call sites. */
+ }
+ 
 +static double rendered_content_aspect_ratio(int content_w, int content_h) {
 +    return content_h > 0 ? (double)content_w / (double)content_h : 1.0;
 +}
 +
-@@ -2383,0 +2379 @@ static void update_game_viewport(void) {
+ static void update_game_viewport(void) {
+     const int content_w = border_content_width();
+     const int content_h = border_content_height();
 +    const double aspect_ratio = rendered_content_aspect_ratio(content_w, content_h);
-@@ -2388 +2383,0 @@ static void update_game_viewport(void) {
+ 
+     if (!g_window) {
+         g_game_viewport.x = 0;
+         g_game_viewport.y = 0;
 -        g_game_viewport.w = content_w * g_scale;
-@@ -2389,0 +2385 @@ static void update_game_viewport(void) {
+         g_game_viewport.h = content_h * g_scale;
 +        g_game_viewport.w = content_w * g_scale;
-@@ -2402 +2398,9 @@ static void update_game_viewport(void) {
+         return;
+     }
+ 
+@@ -2399,7 +2383,15 @@ static void update_game_viewport(void) {
+     int viewport_w = window_w;
+     int viewport_h = window_h;
+ 
 -    switch (g_render_scaling_mode) {
 +    if (g_aspect_index != 0) {
 +        /* The framebuffer itself has the selected pixel ratio. Fit that
@@ -494,26 +688,62 @@ index 465ef72..a4b9260 100644
 +            viewport_w = round_to_int((double)window_h * aspect_ratio);
 +        }
 +    } else switch (g_render_scaling_mode) {
-@@ -2453 +2456,0 @@ static void apply_window_scale_preset(void) {
+         case GB_RENDER_SCALING_PIXEL_PERFECT: {
+             int scale_x = window_w / content_w;
+             int scale_y = window_h / content_h;
+@@ -2450,8 +2442,8 @@ static void update_game_viewport(void) {
+ }
+ 
+ static void apply_window_scale_preset(void) {
 -    g_windowed_width = border_content_width() * g_scale;
-@@ -2454,0 +2458 @@ static void apply_window_scale_preset(void) {
+     g_windowed_height = border_content_height() * g_scale;
 +    g_windowed_width = border_content_width() * g_scale;
-@@ -2536,0 +2541,3 @@ static bool recreate_streaming_texture(void) {
+ 
+     if (g_window && g_fullscreen_mode == 0) {
+         SDL_SetWindowSize(g_window, g_windowed_width, g_windowed_height);
+@@ -2534,6 +2526,9 @@ static bool recreate_streaming_texture(void) {
+         g_game_tex = 0;
+     }
+ 
 +    const int texture_width = gb_ws_render_width();
 +    const int texture_height = GB_SCREEN_HEIGHT;
 +
-@@ -2544 +2551 @@ static bool recreate_streaming_texture(void) {
+     glGenTextures(1, &g_game_tex);
+     glBindTexture(GL_TEXTURE_2D, g_game_tex);
+     /* RGBA8 storage — the GB framebuffer is uint32 ARGB; we re-pack to
+@@ -2541,7 +2536,7 @@ static bool recreate_streaming_texture(void) {
+      * set sane defaults so even pre-shader code paths see a usable
+      * texture. */
+     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
 -                 gb_ws_render_width(), GB_SCREEN_HEIGHT, 0,
 +                 texture_width, texture_height, 0,
-@@ -2551,0 +2559,3 @@ static bool recreate_streaming_texture(void) {
+                  GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+@@ -2549,6 +2544,9 @@ static bool recreate_streaming_texture(void) {
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+     glBindTexture(GL_TEXTURE_2D, 0);
+ 
 +    g_game_tex_width = texture_width;
 +    g_game_tex_height = texture_height;
 +
-@@ -2574,0 +2585,3 @@ static void reset_runtime_display_defaults(void) {
+     g_renderer_reset_pending = false;
+     return true;
+ }
+@@ -2572,6 +2570,9 @@ static void set_app_suspended(bool suspended) {
+ 
+ static void reset_runtime_display_defaults(void) {
+     g_scale = 5;
 +    g_aspect_index = 0;
 +    g_pref_widescreen = 0;
 +    gb_ws_set_cli_request(0);
-@@ -2619,121 +2631,0 @@ static void reset_runtime_control_defaults(void) {
+     g_speed_percent = 100;
+     g_palette_idx = 0;
+     g_smooth_lcd_transitions = true;
+@@ -2616,127 +2617,6 @@ static void reset_runtime_control_defaults(void) {
+     save_runtime_preferences();
+ }
+ 
 -#ifdef RECOMP_LAUNCHER
 -static const char* const g_runtime_scaling_choices[] = {
 -    "Pixel Perfect", "Aspect Fit", "Aspect Fill", "Stretch",
@@ -635,7 +865,13 @@ index 465ef72..a4b9260 100644
 -}
 -#endif
 -
-@@ -2866,0 +2759,13 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+ static void update_controller_axis_binding_state(void) {
+     for (int action = 0; action < GB_INPUT_ACTION_COUNT; action++) {
+         for (int slot = 0; slot < 2; slot++) {
+@@ -2864,6 +2744,19 @@ static void ensure_lcd_off_framebuffer(void) {
+ }
+ 
+ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_frame) {
 +    {
 +        static int last_logged_active = -1;
 +        static int last_logged_width = -1;
@@ -649,7 +885,13 @@ index 465ef72..a4b9260 100644
 +            last_logged_width = width;
 +        }
 +    }
-@@ -2911 +2816,11 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+     if (!framebuffer) {
+         DBG_FRAME("Platform render_frame: SKIPPED (null: tex=%d, gl=%d, fb=%d)",
+                   g_game_tex == 0, g_gl_context == NULL, framebuffer == NULL);
+@@ -2908,7 +2801,17 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+         return;
+     }
+ 
 -    if ((!g_game_tex || g_renderer_reset_pending) && !recreate_streaming_texture()) {
 +    /* The widescreen PPU changes its framebuffer width after the SDL
 +     * renderer is initialized. Keep texture storage in lockstep with that
@@ -662,7 +904,13 @@ index 465ef72..a4b9260 100644
 +         g_game_tex_width != frame_width ||
 +         g_game_tex_height != GB_SCREEN_HEIGHT) &&
 +        !recreate_streaming_texture()) {
-@@ -3035,0 +2951,7 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+         g_last_timing.upload_ms = 0.0;
+         g_last_timing.compose_ms = 0.0;
+         g_last_timing.present_ms = 0.0;
+@@ -3033,8 +2936,15 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+         }
+     }
+     glBindTexture(GL_TEXTURE_2D, g_game_tex);
 +    /* Be explicit: other GL-backed UI code may alter unpack state. Our
 +     * scratch buffer is tightly packed RGBA, one full extended row after
 +     * another. */
@@ -670,10 +918,16 @@ index 465ef72..a4b9260 100644
 +#if defined(GL_UNPACK_ROW_LENGTH)
 +    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 +#endif
-@@ -3037 +2959 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
 -                    gb_ws_render_width(), GB_SCREEN_HEIGHT,
 +                    frame_width, GB_SCREEN_HEIGHT,
-@@ -3059,0 +2982,12 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+                     GL_RGBA, GL_UNSIGNED_BYTE, s_upload_buf);
+     glBindTexture(GL_TEXTURE_2D, 0);
+     g_last_timing.upload_ms = sdl_now_ms() - upload_start_ms;
+@@ -3057,6 +2967,18 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+         active_border = g_border_texture;
+     }
+ 
 +    {
 +        static int present_diag_logged = 0;
 +        if (!present_diag_logged) {
@@ -686,7 +940,13 @@ index 465ef72..a4b9260 100644
 +        }
 +    }
 +
-@@ -3086 +3020,6 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+     /* Convert the SDL_Rect-style game viewport (window-pixel coords)
+      * into drawable-pixel coords for HiDPI consistency. */
+     int win_w = 0, win_h = 0;
+@@ -3083,16 +3005,21 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+                                     draw_w, draw_h);
+             const double sx = (double)g_game_viewport.w / (double)GB_BORDER_FULL_W;
+             const double sy = (double)g_game_viewport.h / (double)GB_BORDER_FULL_H;
 -            int gb_x = (int)((g_game_viewport.x + GB_BORDER_INSET_X * sx) * dpr_x);
 +            /* Keep the extended game view centered on the native SGB aperture.
 +             * Otherwise the border path crops the uploaded wide framebuffer to
@@ -694,13 +954,24 @@ index 465ef72..a4b9260 100644
 +            int game_width = gb_ws_render_width();
 +            int gb_x = (int)((g_game_viewport.x +
 +                              (GB_BORDER_INSET_X - g_gbws_extra_left) * sx) * dpr_x);
-@@ -3088 +3027 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+             int gb_y = (int)((g_game_viewport.y + GB_BORDER_INSET_Y * sy) * dpr_y);
 -            int gb_w = (int)((GB_SCREEN_WIDTH  * sx) * dpr_x);
 +            int gb_w = (int)((game_width * sx) * dpr_x);
-@@ -3095 +3034 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+             int gb_h = (int)((GB_SCREEN_HEIGHT * sy) * dpr_y);
+             if (active_shader >= 0) {
+                 gb_shader_pipeline_set_active(g_shader_pipeline, active_shader);
+             }
+             gb_shader_pipeline_draw(g_shader_pipeline,
+                                     g_game_tex,
 -                                    GB_SCREEN_WIDTH, GB_SCREEN_HEIGHT,
 +                                    game_width, GB_SCREEN_HEIGHT,
-@@ -3113,1131 +3052 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+                                     gb_x, gb_y, gb_w, gb_h,
+                                     draw_w, draw_h);
+         } else {
+@@ -3110,1143 +3037,12 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+     ImGuiIO& imgui_io = ImGui::GetIO();
+     imgui_io.FontGlobalScale = settings_ui_scale_for_size(imgui_io.DisplaySize);
+ 
 -    if (g_show_menu) {
 -        const float ui_scale = imgui_io.FontGlobalScale;
 -        const float footer_height = ImGui::GetFrameHeightWithSpacing() *
@@ -1833,27 +2104,57 @@ index 465ef72..a4b9260 100644
 -        ImGui::PopStyleVar(6);
 -    } else if (g_show_overlay) {
 +    if (g_show_overlay) {
-@@ -4249 +3057,0 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+         ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Always);
+         ImGui::SetNextWindowBgAlpha(0.35f);
+         if (ImGui::Begin("Overlay", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav)) {
+             update_audio_stats_from_ring();
+             ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
 -            ImGui::Text("%s", overlay_menu_hint_text());
-@@ -4309,3 +3116,0 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+             ImGui::Text("%s", overlay_visibility_hint_text());
+             ImGui::Text("Viewport: %d x %d (%s)",
+                         g_game_viewport.w,
+@@ -4306,9 +3102,6 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
+         ImGui::End();
+     }
+ 
 -#ifdef RECOMP_LAUNCHER
 -    recomp_runtime_ui_render_imgui(g_runtime_ui);
 -#endif
-@@ -4340,4 +3144,0 @@ void gb_platform_shutdown(void) {
+     ImGui::Render();
+     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+     g_last_timing.compose_ms = sdl_now_ms() - compose_start_ms;
+@@ -4337,10 +3130,6 @@ void gb_platform_shutdown(void) {
+     g_binding_capture_device = GB_CAPTURE_DEVICE_NONE;
+     
+     if (ImGui::GetCurrentContext() != NULL) {
 -#ifdef RECOMP_LAUNCHER
 -        recomp_runtime_ui_destroy(g_runtime_ui);
 -        g_runtime_ui = NULL;
 -#endif
-@@ -4749 +3550,2 @@ bool gb_platform_init(int scale) {
+         ImGui_ImplOpenGL3_Shutdown();
+         ImGui_ImplSDL2_Shutdown();
+         ImGui::DestroyContext();
+@@ -4746,10 +3535,15 @@ bool gb_platform_init(int scale) {
+         g_script_count == 0 && g_dump_count == 0 &&
+         g_dump_present_count == 0 && g_dump_cycle_count == 0 &&
+         !env_flag_enabled("GBRECOMP_NO_LAUNCHER")) {
 -        if (gb_launcher_preboot() == GB_LAUNCHER_QUIT) {
 +        const int launcher_result = gb_launcher_preboot();
 +        if (launcher_result == GB_LAUNCHER_QUIT) {
-@@ -4752,0 +3555,4 @@ bool gb_platform_init(int scale) {
+             /* user closed the launcher window: clean exit, no game boot */
+             exit(0);
+         }
 +        if (launcher_result == GB_LAUNCHER_ERROR) {
 +            /* Required ROM missing/invalid: preboot already showed the alert. */
 +            exit(1);
 +        }
-@@ -4809,3 +3615,6 @@ bool gb_platform_init(int scale) {
+     }
+ #endif
+ 
+@@ -4806,12 +3600,16 @@ bool gb_platform_init(int scale) {
+      * (libGLESv2.dll/libEGL.dll), matching our link-time GL functions. */
+     SDL_SetHint(SDL_HINT_OPENGL_ES_DRIVER, "1");
+ #endif
 -    /* Request a GLES 2.0 context — same code path on desktop Mesa
 -     * (which advertises a compatible profile) and embedded Mali / Adreno
 -     * GPUs. SDL_WINDOW_OPENGL must be set BEFORE SDL_CreateWindow. */
@@ -1863,25 +2164,45 @@ index 465ef72..a4b9260 100644
 +    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 +    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
 +#else
-@@ -4814,0 +3624 @@ bool gb_platform_init(int scale) {
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
 +#endif
-@@ -4886 +3696 @@ bool gb_platform_init(int scale) {
+     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
+ 
+@@ -4883,12 +3681,12 @@ bool gb_platform_init(int scale) {
+ 
+     apply_imgui_theme(g_imgui_theme);
+ 
 -    /* GLES 2 backend — `#version 100` GLSL, no VAOs, runs anywhere. */
 +    /* Match the renderer backend and shader dialect to the platform context. */
-@@ -4887,0 +3698,3 @@ bool gb_platform_init(int scale) {
+     ImGui_ImplSDL2_InitForOpenGL(g_window, g_gl_context);
 +#if defined(__APPLE__)
 +    ImGui_ImplOpenGL3_Init("#version 150");
 +#else
-@@ -4889,3 +3701,0 @@ bool gb_platform_init(int scale) {
+     ImGui_ImplOpenGL3_Init("#version 100");
 -
 -#ifdef RECOMP_LAUNCHER
 -    create_runtime_ui();
-@@ -4958,0 +3769,4 @@ static bool handle_binding_capture_event(const SDL_Event* event) {
+ #endif
+ 
+     /* Build the post-process shader pipeline now that GL is current. */
+@@ -4956,6 +3754,10 @@ static bool handle_binding_capture_event(const SDL_Event* event) {
+                 cancel_binding_capture();
+                 return true;
+             }
 +            if (event->key.keysym.scancode == SDL_SCANCODE_RETURN ||
 +                event->key.keysym.scancode == SDL_SCANCODE_KP_ENTER) {
 +                return true;
 +            }
-@@ -4993,69 +3806,0 @@ static bool handle_binding_capture_event(const SDL_Event* event) {
+             commit_binding_capture(make_binding(GB_INPUT_BINDING_KEY, event->key.keysym.scancode));
+             return true;
+ 
+@@ -4990,75 +3792,6 @@ static bool handle_binding_capture_event(const SDL_Event* event) {
+     }
+ }
+ 
 -#ifdef RECOMP_LAUNCHER
 -static bool handle_shared_runtime_ui_event(const SDL_Event* event) {
 -    if (!g_runtime_ui || !event) return false;
@@ -1951,14 +2272,26 @@ index 465ef72..a4b9260 100644
 -}
 -#endif
 -
-@@ -5082,6 +3826,0 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+     if (!event) {
+         return true;
+@@ -5079,12 +3812,6 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+     if (handle_binding_capture_event(event)) {
+         return true;
+     }
 -#ifdef RECOMP_LAUNCHER
 -    if (handle_shared_runtime_ui_event(event)) {
 -        return true;
 -    }
 -#endif
 -
-@@ -5165,7 +3903,0 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+     switch (event->type) {
+         case SDL_APP_WILLENTERBACKGROUND:
+             set_app_suspended(true);
+@@ -5162,13 +3889,6 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+             uint8_t previous_dpad = g_joypad_dpad;
+             uint8_t previous_buttons = g_joypad_buttons;
+ 
 -            if (event->cbutton.button == SDL_CONTROLLER_BUTTON_GUIDE) {
 -                if (pressed) {
 -                    g_show_menu = !g_show_menu;
@@ -1966,9 +2299,17 @@ index 465ef72..a4b9260 100644
 -                return true;
 -            }
 -
-@@ -5197,0 +3930 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+             for (int action = 0; action < GB_INPUT_ACTION_COUNT; action++) {
+                 for (int slot = 0; slot < 2; slot++) {
+                     if (binding_matches_controller_button(g_controller_bindings[action][slot], event->cbutton.button)) {
+@@ -5195,25 +3915,25 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+         case SDL_KEYDOWN:
+         case SDL_KEYUP: {
+             const bool pressed = (event->type == SDL_KEYDOWN);
 +            const SDL_Scancode scancode = event->key.keysym.scancode;
-@@ -5201,7 +3934,6 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+             uint8_t previous_dpad = g_joypad_dpad;
+             uint8_t previous_buttons = g_joypad_buttons;
+ 
 -            switch (event->key.keysym.scancode) {
 -                case SDL_SCANCODE_ESCAPE:
 -                case SDL_SCANCODE_AC_BACK:
@@ -1976,31 +2317,16 @@ index 465ef72..a4b9260 100644
 -                        g_show_menu = !g_show_menu;
 -                    }
 -                    return true;
+-
+-                default:
+-                    break;
 +            if (scancode == SDL_SCANCODE_ESCAPE) {
 +                g_escape_as_b_pressed = pressed;
 +            }
 +            if (scancode == SDL_SCANCODE_RETURN || scancode == SDL_SCANCODE_KP_ENTER) {
 +                g_enter_as_start_pressed = pressed;
-+            }
-@@ -5209,2 +3941,15 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
--                default:
--                    break;
-+            if (pressed && event->key.repeat == 0) {
-+                GBDevHotkey hotkey;
-+                bool is_dev_hotkey = true;
-+                switch (event->key.keysym.scancode) {
-+                    case SDL_SCANCODE_1:
-+                    case SDL_SCANCODE_KP_1:
-+                        hotkey = GB_DEV_HOTKEY_RARE_CANDY;
-+                        break;
-+                    default:
-+                        is_dev_hotkey = false;
-+                        break;
-+                }
-+                if (is_dev_hotkey && game_handle_dev_hotkey(ctx, hotkey)) {
-+                    return true;
-+                }
-@@ -5213,4 +3958,8 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
+             }
+ 
 -            for (int action = 0; action < GB_INPUT_ACTION_COUNT; action++) {
 -                for (int slot = 0; slot < 2; slot++) {
 -                    if (binding_matches_scancode(g_keyboard_bindings[action][slot], event->key.keysym.scancode)) {
@@ -2013,7 +2339,13 @@ index 465ef72..a4b9260 100644
 +                        if (binding_matches_scancode(g_keyboard_bindings[action][slot], scancode)) {
 +                            g_keyboard_binding_pressed[action][slot] = pressed;
 +                        }
-@@ -5266,0 +4016,12 @@ bool gb_platform_poll_events(GBContext* ctx) {
+                     }
+                 }
+             }
+@@ -5264,6 +3984,18 @@ bool gb_platform_poll_events(GBContext* ctx) {
+     gb_debug_server_poll();
+     gb_debug_server_wait_if_paused();
+ 
 +#if defined(GBRECOMP_HOST_EXIT_SIGNAL)
 +    /* A language-specific game patch may request host shutdown through the
 +     * unused FF7E/FF7F registers (signature "PK"). Consume the command and
@@ -2026,11 +2358,59 @@ index 465ef72..a4b9260 100644
 +    }
 +#endif
 +
+     SDL_Event event;
+ 
+     if (!g_benchmark_mode) {
+
+diff --git a/runtime/include/keybinds.h b/runtime/include/keybinds.h
+index 1395526..a6ad556 100644
+--- a/runtime/include/keybinds.h
++++ b/runtime/include/keybinds.h
+@@ -5,7 +5,6 @@
+ typedef struct {
+     SDL_Scancode a, b, select, start;
+     SDL_Scancode up, down, left, right;
+-    SDL_Scancode turbo;
+ } GBKeybinds;
+ 
+ /* Initialize keybinds from INI file next to exe. Generates defaults if missing. */
+diff --git a/runtime/src/keybinds.c b/runtime/src/keybinds.c
+index a89a7ba..c497e73 100644
+--- a/runtime/src/keybinds.c
++++ b/runtime/src/keybinds.c
+@@ -23,7 +23,6 @@ static GBKeybinds s_binds = {
+     .down   = SDL_SCANCODE_DOWN,
+     .left   = SDL_SCANCODE_LEFT,
+     .right  = SDL_SCANCODE_RIGHT,
+-    .turbo  = SDL_SCANCODE_TAB,
+ };
+ 
+ /* ── Button name mapping ──────────────────────────────────────────────────── */
+@@ -42,7 +41,6 @@ static const ButtonDef s_buttons[] = {
+     { "down",   offsetof(GBKeybinds, down) },
+     { "left",   offsetof(GBKeybinds, left) },
+     { "right",  offsetof(GBKeybinds, right) },
+-    { "turbo",  offsetof(GBKeybinds, turbo) },
+     { NULL, 0 }
+ };
+ 
+@@ -103,7 +101,7 @@ static void write_defaults(const char *path) {
+     if (!f) return;
+     fprintf(f, "# Game Boy Keybinds\n");
+     fprintf(f, "# Edit key names to customize. Uses SDL key names.\n");
+-    fprintf(f, "# Common: Z, X, Tab, Return, Up, Down, Left, Right\n");
++    fprintf(f, "# Common: Z, X, Return, Up, Down, Left, Right\n");
+     fprintf(f, "# A-Z letters, Space, Left Shift, Right Shift, Backspace\n\n");
+     fprintf(f, "[controls]\n");
+     for (const ButtonDef *bd = s_buttons; bd->name; bd++) {
 diff --git a/runtime/src/ppu.c b/runtime/src/ppu.c
-index c115b45..d84a90f 100644
+index c115b45..fe93a9c 100644
 --- a/runtime/src/ppu.c
 +++ b/runtime/src/ppu.c
-@@ -33,0 +34,8 @@ static const uint16_t dmg_palette_rgb555[4] = {
+@@ -31,6 +31,14 @@ static const uint16_t dmg_palette_rgb555[4] = {
+     0x0841,
+ };
+ 
 +/* Temporary Oak's Lab trace: follows the known Poké Ball OAM group (slots
 + * 4..7) from scanline selection through margin composition. */
 +static uint32_t s_oak_obj_trace_signature = 0xFFFFFFFFu;
@@ -2039,25 +2419,67 @@ index c115b45..d84a90f 100644
 +static int s_oak_ball_margin_pixels = 0;
 +static int s_oak_trace_emit_frame = 0;
 +
-@@ -618,0 +627 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
+ /* ============================================================================
+  * CGB compatibility palette tables (ported from SameBoy's cgb_boot.asm)
+  * ========================================================================== */
+@@ -605,6 +613,25 @@ static void sort_scanline_sprites(ScanlineSprite* sprites, int sprite_count) {
+     }
+ }
+ 
++/* OAM stores X in one byte, while the host's extended viewport can include
++ * pixels to the left of x=0. Pokered writes those negative screen positions
++ * modulo 256; unwrap values that cannot be part of the visible native/right
++ * range. The game-side object culler ensures sprites beyond the extended
++ * world bounds do not alias into the opposite margin. */
++static int ppu_sprite_screen_x(const OAMEntry* sprite, int oam_index) {
++    int raw_x = g_gbws_oam_sidecar
++        ? (int)g_gbws_oam_x16[oam_index]
++        : (int)sprite->x;
++    int screen_x = raw_x - 8;
++
++    if (!g_gbws_oam_sidecar && g_gbws_active && !g_gbws_pillarbox &&
++        raw_x > GB_SCREEN_WIDTH + g_gbws_extra_right + 7) {
++        screen_x -= 256;
++    }
++
++    return screen_x;
++}
++
+ /* Build the current scanline's sprite list from OAM. The OAM scan happens in
+  * mode 2 and is fixed before mode 3, so this runs once per scanline (lazily on
+  * the first mode-3 segment). OBJ size (sprite height + tile fetch) uses the
+@@ -616,14 +643,20 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
+     uint8_t scanline = ppu->ly;
+     uint8_t sprite_height;
+     int sprite_count = 0;
 +    int margin_sprite_count = 0;
-@@ -622,0 +632,5 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
+     ScanlineSprite* sprites = ppu->scanline_sprites;
+ 
+     ppu->sprite_list_built = true;
+     ppu->scanline_sprite_list_count = 0;
 +    ppu->scanline_native_sprite_count = 0;
 +    if (ppu->ly == 60) {
 +        s_oak_ball_native_pixels = 0;
 +        s_oak_ball_margin_pixels = 0;
 +    }
-@@ -626 +640 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
+ 
+     sprite_height = (ppu->latched_lcdc & LCDC_OBJ_SIZE) ? 16 : 8;
+ 
 -    for (int i = 0; i < 40 && sprite_count < 10; i++) {
 +    for (int i = 0; i < 40; i++) {
-@@ -635,0 +650,6 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
-+            int screen_x = g_gbws_oam_sidecar
-+                ? (int)g_gbws_oam_x16[i] - 8
-+                : (int)sprite->x - 8;
+         const OAMEntry* sprite = (const OAMEntry*)(ctx->oam + i * 4);
+         int sprite_y = (int)sprite->y - 16;
+ 
+@@ -633,8 +666,21 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
+ 
+         {
+             int line = (int)scanline - sprite_y;
++            int screen_x = ppu_sprite_screen_x(sprite, i);
 +            bool native_slot = sprite_count < 10;
 +            bool margin_candidate = g_gbws_active &&
 +                (screen_x < 0 || screen_x + 8 > GB_SCREEN_WIDTH);
-@@ -637,0 +658,9 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
+             uint8_t tile_idx = sprite->tile;
+             uint8_t tile_bank = 0;
 +            int list_index;
 +
 +            /* Preserve the native OAM selection exactly: its first ten
@@ -2067,10 +2489,19 @@ index c115b45..d84a90f 100644
 +                continue;
 +            }
 +            list_index = native_slot ? sprite_count++ : 10 + margin_sprite_count++;
-@@ -651 +680 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
+ 
+             if (sprite_height == 16) {
+                 tile_idx &= 0xFE;
+@@ -648,31 +694,30 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
+                 tile_bank = 1;
+             }
+ 
 -            sprites[sprite_count].oam_index = i;
 +            sprites[list_index].oam_index = i;
-@@ -656,6 +685,4 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
+             /* Widescreen OAM X16 sidecar: consume the unwrapped 16-bit raw X
+              * (raw OAM domain) instead of the 8-bit byte, so sprites the game
+              * placed beyond the native edge land in the margins instead of
+              * wrapping. Vanilla decode when the sidecar is off. */
 -            sprites[sprite_count].screen_x = g_gbws_oam_sidecar
 -                ? (int)g_gbws_oam_x16[i] - 8
 -                : (int)sprite->x - 8;
@@ -2078,10 +2509,11 @@ index c115b45..d84a90f 100644
 -            sprites[sprite_count].flags = sprite->flags;
 -            sprites[sprite_count].palette = cgb_mode
 +            sprites[list_index].screen_x = screen_x;
-+            sprites[list_index].x_pos = sprite->x;
++            sprites[list_index].x_pos = screen_x + 8;
 +            sprites[list_index].flags = sprite->flags;
 +            sprites[list_index].palette = cgb_mode
-@@ -664,4 +691,3 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
+                 ? (sprite->flags & OAM_CGB_PALETTE)
+                 : ((sprite->flags & OAM_PALETTE) ? 1 : 0);
 -            sprites[sprite_count].behind_bg = (sprite->flags & OAM_PRIORITY) != 0;
 -            sprites[sprite_count].lo = vram_read_bank(ctx, tile_bank, (uint16_t)(0x8000 + tile_idx * 16 + line * 2));
 -            sprites[sprite_count].hi = vram_read_bank(ctx, tile_bank, (uint16_t)(0x8000 + tile_idx * 16 + line * 2 + 1));
@@ -2089,21 +2521,35 @@ index c115b45..d84a90f 100644
 +            sprites[list_index].behind_bg = (sprite->flags & OAM_PRIORITY) != 0;
 +            sprites[list_index].lo = vram_read_bank(ctx, tile_bank, (uint16_t)(0x8000 + tile_idx * 16 + line * 2));
 +            sprites[list_index].hi = vram_read_bank(ctx, tile_bank, (uint16_t)(0x8000 + tile_idx * 16 + line * 2 + 1));
-@@ -672,0 +699 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
+         }
+     }
+ 
+     if (dmg_priority_mode) {
+         sort_scanline_sprites(sprites, sprite_count);
 +        sort_scanline_sprites(sprites + 10, margin_sprite_count);
-@@ -675 +702,2 @@ static void build_scanline_sprite_list(GBPPU* ppu, GBContext* ctx) {
+     }
+ 
 -    ppu->scanline_sprite_list_count = sprite_count;
 +    ppu->scanline_native_sprite_count = sprite_count;
 +    ppu->scanline_sprite_list_count = sprite_count + margin_sprite_count;
-@@ -687 +715,3 @@ static void render_sprites_segment(GBPPU* ppu, GBContext* ctx, int x_start, int
+ }
+ 
+ /* Composite sprite pixels in [x_start, x_end) over the BG already drawn for that
+@@ -684,16 +729,20 @@ static void render_sprites_segment(GBPPU* ppu, GBContext* ctx, int x_start, int
+     bool cgb_mode = ppu_is_cgb_mode(ctx);
+     uint8_t scanline = ppu->ly;
+     const ScanlineSprite* sprites = ppu->scanline_sprites;
 -    int sprite_count = ppu->scanline_sprite_list_count;
 +    int sprite_count = (x_start < 0 || x_end > GB_SCREEN_WIDTH)
 +        ? ppu->scanline_sprite_list_count
 +        : ppu->scanline_native_sprite_count;
-@@ -691,0 +722,2 @@ static void render_sprites_segment(GBPPU* ppu, GBContext* ctx, int x_start, int
+     const int xoff = ppu->view_extra_left;
+     const int row = (int)scanline * ppu->view_stride + xoff;
+     const uint8_t* bg_raw = ppu->bg_raw_line + xoff;
+     const uint8_t* bg_priority = ppu->bg_priority_line + xoff;
 +    int oak_trace_emit = 0;
 +    uint32_t oak_signature = 2166136261u;
-@@ -693,4 +725,4 @@ static void render_sprites_segment(GBPPU* ppu, GBContext* ctx, int x_start, int
+ 
 -    /* Sprites only reach the margins through the X16 sidecar. Without it a
 -     * wrapped 8-bit X (e.g. an object just off-left stored as 0xE0) would
 -     * ghost into the right margin, so clamp composite to the native span. */
@@ -2112,7 +2558,13 @@ index c115b45..d84a90f 100644
 +     * game supplies the X16 sidecar, it also disambiguates wrapped positions;
 +     * otherwise the native 8-bit OAM X remains the source of screen position. */
 +    if (g_gbws_active) {
-@@ -706,0 +739,45 @@ static void render_sprites_segment(GBPPU* ppu, GBContext* ctx, int x_start, int
+         if (x_start < -xoff) x_start = -xoff;
+         if (x_end > GB_SCREEN_WIDTH + ppu->view_extra_right) {
+             x_end = GB_SCREEN_WIDTH + ppu->view_extra_right;
+@@ -704,6 +753,49 @@ static void render_sprites_segment(GBPPU* ppu, GBContext* ctx, int x_start, int
+     }
+     if (x_start >= x_end) return;
+ 
 +    /* OAM coordinates place the table Poké Ball in slots 8..11 at LY 60..75. */
 +    if (ppu->ly >= 60 && ppu->ly <= 75 &&
 +        x_start == GB_SCREEN_WIDTH && g_gbws_active) {
@@ -2140,9 +2592,7 @@ index c115b45..d84a90f 100644
 +                    ppu->lcdc, ppu->obp0, ppu->obp1, ppu->bgp);
 +            for (int slot = 8; slot <= 11; ++slot) {
 +                const uint8_t* entry = ctx->oam + slot * 4;
-+                int screen_x = g_gbws_oam_sidecar
-+                    ? (int)g_gbws_oam_x16[slot] - 8
-+                    : (int)entry[1] - 8;
++                int screen_x = ppu_sprite_screen_x((const OAMEntry*)entry, slot);
 +                int selected = 0;
 +                for (int i = 0; i < ppu->scanline_sprite_list_count; ++i) {
 +                    if (ppu->scanline_sprites[i].oam_index == slot) {
@@ -2158,9 +2608,21 @@ index c115b45..d84a90f 100644
 +        }
 +    }
 +
-@@ -744 +820,0 @@ static void render_sprites_segment(GBPPU* ppu, GBContext* ctx, int x_start, int
+     /* OBJ enable sampled LIVE: dots drawn while OBJ is disabled show no sprite. */
+     if (!(ppu->lcdc & LCDC_OBJ_ENABLE)) {
+         return;
+@@ -741,7 +833,6 @@ static void render_sprites_segment(GBPPU* ppu, GBContext* ctx, int x_start, int
+         if (!chosen_sprite) {
+             continue;
+         }
 -
-@@ -780,0 +857,38 @@ static void render_sprites_segment(GBPPU* ppu, GBContext* ctx, int x_start, int
+         if (cgb_mode) {
+             uint8_t bg_color = bg_raw[screen_x];
+             uint8_t bg_attr_priority = bg_priority[screen_x];
+@@ -778,6 +869,44 @@ static void render_sprites_segment(GBPPU* ppu, GBContext* ctx, int x_start, int
+                                   chosen_sprite->palette, chosen_color,
+                                   dmg_palette_reg);
+         }
 +        if (ppu->ly >= 60 && ppu->ly <= 75 &&
 +            chosen_sprite->oam_index >= 8 &&
 +            chosen_sprite->oam_index <= 11) {
@@ -2199,7 +2661,13 @@ index c115b45..d84a90f 100644
 +            fputc('\n', stderr);
 +            s_oak_trace_emit_frame = 0;
 +        }
-@@ -827,10 +941,12 @@ static void render_view_margins(GBPPU* ppu, GBContext* ctx) {
+     }
+ }
+ 
+@@ -824,16 +953,18 @@ static void render_view_margins(GBPPU* ppu, GBContext* ctx) {
+     bool blank_left;
+     bool blank_right;
+ 
 -    if (ppu->ly == 0) {
 -        game_extended_view_update(ctx);
 -        memcpy(ppu->ws_margin_bg_palette_ram, ppu->bg_palette_ram,
@@ -2222,6 +2690,9 @@ index c115b45..d84a90f 100644
 +    ppu->ws_margin_bgp = ppu->bgp;
 +    ppu->ws_margin_obp0 = ppu->obp0;
 +    ppu->ws_margin_obp1 = ppu->obp1;
+ 
+     lcd_on = (ppu->lcdc & LCDC_LCD_ENABLE) != 0;
+     window_full_line = (ppu->lcdc & LCDC_WINDOW_ENABLE) &&
 diff --git a/runtime/src/shader_pipeline.cpp b/runtime/src/shader_pipeline.cpp
 index 3390e22..476928f 100644
 --- a/runtime/src/shader_pipeline.cpp
